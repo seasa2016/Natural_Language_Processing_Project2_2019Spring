@@ -32,7 +32,7 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
-from torch.nn import CrossEntropyLoss, MSELoss
+from torch.nn import CrossEntropyLoss, MSELoss, kldivloss
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import matthews_corrcoef, f1_score
 
@@ -107,16 +107,16 @@ class SemevalProcessor(DataProcessor):
 	def get_train_examples(self, data_dir):
 		"""See base class."""
 		return self._create_examples(
-			pd.read_csv(os.path.join(data_dir, "local_train.csv")), "train")
+			pd.read_csv(os.path.join(data_dir, "./dataset/train.tsv", sep='\t')), "train")
 
 	def get_dev_examples(self, data_dir):
 		"""See base class."""
 		return self._create_examples(
-			pd.read_csv(os.path.join(data_dir, "local_test.csv")), "test")
+			pd.read_csv(os.path.join(data_dir, "./dataset/valid.tsv", sep='\t')), "test")
 
 	def get_test_examples(self, file_name):
 		"""See base class."""
-		data = pd.read_csv(file_name)
+		data = pd.read_csv(file_name, sep='\t')
 		#OFF	UNT	NULL
 		data['subtask_a'] = pd.Series(['OFF']*data.shape[0], index=data.index)
 		data['subtask_b'] = pd.Series(['UNT']*data.shape[0], index=data.index)
@@ -124,9 +124,13 @@ class SemevalProcessor(DataProcessor):
 		return self._create_examples(data, "test")
 			
 
-	def get_labels(self,task):
+	def get_labels(self):
 		"""See base class."""
-		return ["agreed", "disagreed","unrelated"]
+		return [
+			['OFF', 'NOT'],
+			['NULL', 'UNT', 'TIN'],
+			['NULL', 'OTH', 'GRP', 'IND']
+		]
 
 	def _create_examples(self, data, set_type):
 		"""Creates examples for the training and dev sets."""
@@ -134,23 +138,35 @@ class SemevalProcessor(DataProcessor):
 		ids = data['id'].tolist()
 		texts = data['tweet'].tolist()
 		label_as = data['subtask_a'].tolist()
-		label_bs = data['subtask_b'].tolist()
-		label_cs = data['subtask_c'].tolist()
+		label_bs = data['subtask_b'].fillna('NULL').tolist()
+		label_cs = data['subtask_c'].fillna('NULL').tolist()
 
 		examples = []
 		#id,tid1,tid2,title1_zh,title2_zh,title1_en,title2_en,label
-		for i,(guid,texts,label_a,label_b,label_c) in enumerate( zip(ids,texts,label_as,label_bs,label_cs)):
+		for i,(guid,text,label_a,label_b,label_c) in enumerate( zip(ids,texts,label_as,label_bs,label_cs)):
 			label = [label_a,label_b,label_c]
-			examples.append(InputExample(guid=guid, text_a=text_a, label=label))
+			examples.append(InputExample(guid=guid, text_a=text, label=label))
 			
 		return examples
 
 
-def convert_examples_to_features(examples, label_list, max_seq_length,
+def convert_examples_to_features(examples, label_lists, max_seq_length,
 								 tokenizer, output_mode):
 	"""Loads a data file into a list of `InputBatch`s."""
+	if(output_mode == "multi_classification"):
+		"""
+		['OFF', 'NOT'],
+		['NULL', 'UNT', 'TIN'],
+		['NULL', 'OTH', 'GRP', 'IND']
+		"""
+		label_map = []
+		
+		label_map.append( {'OFF':[0,1], 'NOT':[1,0]} )
+		label_map.append( {'NULL':[0,0], 'UNT':[1,0], 'TIN':[0,1]} )
+		label_map.append( {'NULL':[0,0,0], 'OTH':[1,0,0], 'GRP':[0,1,0], 'IND':[0,0,1]} )
 
-	label_map = {label : i for i, label in enumerate(label_list)}
+	else:
+		label_map =  {label : i for i, label in enumerate(label_list)} 
 
 	features = []
 	for (ex_index, example) in enumerate(examples):
@@ -196,7 +212,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 			tokens += tokens_b + ["[SEP]"]
 			segment_ids += [1] * (len(tokens_b) + 1)
 
-		input_id_s = tokenizer.convert_tokens_to_ids(tokens)
+		input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
 		# The mask has 1 for real tokens and 0 for padding tokens. Only real
 		# tokens are attended to.
@@ -212,10 +228,15 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 		assert len(input_mask) == max_seq_length
 		assert len(segment_ids) == max_seq_length
 
-		if output_mode == "classification":
-			label_id = label_map[example.label]
+		if(output_mode == "multi_classification"):
+			label = []
+			for i,label_m in enumerate(label_map):
+				label.append( label_m[example.label[i]] )
+
+		elif output_mode == "classification":
+			label = label_map[example.label]
 		elif output_mode == "regression":
-			label_id = float(example.label)
+			label = float(example.label)
 		else:
 			raise KeyError(output_mode)
 
@@ -227,14 +248,14 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
 			logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
 			logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
 			logger.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-			logger.info("label: %s (id = %d)" % (example.label, label_id))
+			logger.info("label: {0} (id = {1})".format(example.label, label))
 
 		features.append(
 				InputFeatures(guid=example.guid,
 							  input_ids=input_ids,
 							  input_mask=input_mask,
 							  segment_ids=segment_ids,
-							  label_id=label_id))
+							  label_id=label))
 	return features
 
 
@@ -258,14 +279,49 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 	return tokens_a,tokens_b
 
 
-def acc_and_f1(preds, labels):
-	acc = simple_accuracy(preds, labels)
+def simple_accuracy(preds, labels):
+    return (preds == labels).mean()
+
+def multi_acc_and_f1(preds, labels):
+	# convert pred to label
+	out = []
+
+	acc = simple_accuracy(preds[0].argmax(axis=1),labels[:,0])
 	f1 = f1_score(y_true=labels, y_pred=preds)
-	return {
+	out.append({
 		"acc": acc,
 		"f1": f1,
-		"acc_and_f1": (acc + f1) / 2,
-	}
+	})
+
+	pred = []
+	label = []		
+	for p,l in zip(preds[1],labels[1]):
+		if(l==0):
+			continue
+		pred.append(p.argmax(axis=1))
+		label.append(l-1)
+	acc = simple_accuracy(pred,label)
+	f1 = f1_score(y_true=label, y_pred=pred)
+	out.append({
+		"acc": acc,
+		"f1": f1,
+	})
+
+	pred = []
+	label = []		
+	for p,l in zip(preds[1],labels[1]):
+		if(l==0):
+			continue
+		pred.append(p.argmax(axis=1))
+		label.append(l-1)
+	acc = simple_accuracy(pred,label)
+	f1 = f1_score(y_true=label, y_pred=pred)
+	out.append({
+		"acc": acc,
+		"f1": f1,
+	})
+
+	return out
 
 
 
@@ -274,7 +330,7 @@ def acc_and_f1(preds, labels):
 def compute_metrics(task_name, preds, labels):
 	assert len(preds) == len(labels)
 	if task_name == "semeval":
-		return {"acc": acc_and_f1(preds, labels)}
+		return {"acc": multi_acc_and_f1(preds, labels)}
 	else:
 		raise KeyError(task_name)
 
@@ -424,14 +480,21 @@ def main():
 
 	task_name = args.task_name.lower()
 
-	if task_name not in processors:
-		raise ValueError("Task not found: %s" % (task_name))
 
 	processor = SemevalProcessor()
-	output_mode = "classification"
+	output_mode = "multi_classification"
 
 	label_list = processor.get_labels()
-	num_labels = len(label_list)
+	
+	if(output_mode == "multi_classification"):
+		num_labels = []
+		for l in label_list:
+			num_labels.append( len(l) )
+		num_labels[1]-=1
+		num_labels[2]-=1
+
+	else:
+		num_labels = len(label_list)
 
 	tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
@@ -505,12 +568,20 @@ def main():
 		all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
 		all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
 
-		if output_mode == "classification":
-			all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-		elif output_mode == "regression":
-			all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.float)
 
-		train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+		if(output_mode == "multi_classification"):
+			all_label_ids = []
+			for i in range( len(label_list) ):
+				all_label_ids.append( torch.tensor([f.label_id[i] for f in train_features], dtype=torch.double) )
+			
+			train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids[0], all_label_ids[1], all_label_ids[2])
+		else:
+			if( output_mode == "classification"):
+				all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+			elif( output_mode == "regression"):
+				all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.float)
+			train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+
 		if args.local_rank == -1:
 			train_sampler = RandomSampler(train_data)
 		else:
@@ -523,12 +594,24 @@ def main():
 			nb_tr_examples, nb_tr_steps = 0, 0
 			for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
 				batch = tuple(t.to(device) for t in batch)
-				input_ids, input_mask, segment_ids, label_ids = batch
+
+				if(output_mode == "multi_classification"):
+					input_ids, input_mask, segment_ids, label_id_as, label_id_bs, label_id_cs = batch
+					label_ids = [label_id_as, label_id_bs, label_id_cs]
+				else:
+					input_ids, input_mask, segment_ids, label_ids = batch
 
 				# define a new function to compute loss values for both output_modes
-				logits = model(input_ids, segment_ids, input_mask, labels=None)
+				logits = model(input_ids, segment_ids, input_mask)
 
-				if output_mode == "classification":
+
+				if(output_mode == "multi_classification"):
+					loss_fct = kldivloss()
+					loss = 0
+					for i in range( len(label_list) ):
+						loss += loss_fct( logits[i].view(-1, num_labels), label_ids[i] )
+				
+				elif output_mode == "classification":
 					loss_fct = CrossEntropyLoss()
 					loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
 				elif output_mode == "regression":
@@ -589,12 +672,20 @@ def main():
 		all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
 		all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
 
-		if output_mode == "classification":
-			all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
-		elif output_mode == "regression":
-			all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.float)
+		if(output_mode == "multi_classification"):
+			all_label_ids = []
+			for i in range( len(label_list) ):
+				all_label_ids.append( torch.tensor([f.label_id[i] for f in train_features], dtype=torch.double) )
+			
+			truth_label = [ torch.tensor([f for f in train_features], dtype=torch.long) ]
+			eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids[0], all_label_ids[1], all_label_ids[2])
+		else:
+			if( output_mode == "classification"):
+				all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+			elif( output_mode == "regression"):
+				all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.float)
+			eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
 
-		eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
 		# Run prediction for full data
 		eval_sampler = SequentialSampler(eval_data)
 		eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
@@ -602,40 +693,69 @@ def main():
 		model.eval()
 		eval_loss = 0
 		nb_eval_steps = 0
+		
 		preds = []
+		if(output_mode == "multi_classification"):
+			for i in range(len(label_list)):
+				preds.append([])
 
-		for input_ids, input_mask, segment_ids, label_ids in tqdm(eval_dataloader, desc="Evaluating"):
-			input_ids = input_ids.to(device)
-			input_mask = input_mask.to(device)
-			segment_ids = segment_ids.to(device)
-			label_ids = label_ids.to(device)
+		for batch in tqdm(eval_dataloader, desc="Evaluating"):
+			batch = tuple(t.to(device) for t in batch)
+
+			if(output_mode == "multi_classification"):
+				input_ids, input_mask, segment_ids, label_id_as, label_id_bs, label_id_cs = batch
+				label_ids = [label_id_as, label_id_bs, label_id_cs]
+			else:
+				input_ids, input_mask, segment_ids, label_ids = batch
 
 			with torch.no_grad():
-				logits = model(input_ids, segment_ids, input_mask, labels=None)
+				logits = model(input_ids, segment_ids, input_mask)
 
 			# create eval loss and other metric required by the task
-			if output_mode == "classification":
+			if(output_mode == "multi_classification"): 
+				loss_fct = kldivloss()
+				tmp_eval_loss = 0
+				for i in range( len(label_list) ):
+					tmp_eval_loss += loss_fct( logits[i].view(-1, num_labels), label_ids[i] )
+			
+			elif output_mode == "classification":
 				loss_fct = CrossEntropyLoss()
 				tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
 			elif output_mode == "regression":
 				loss_fct = MSELoss()
 				tmp_eval_loss = loss_fct(logits.view(-1), label_ids.view(-1))
 			
+
 			eval_loss += tmp_eval_loss.mean().item()
 			nb_eval_steps += 1
-			if len(preds) == 0:
-				preds.append(logits.detach().cpu().numpy())
+
+			if(output_mode == "multi_classification"): 
+				for i,logit in enumerate(logits):
+					if(len(preds[i]) == 0):
+						preds[i].append(logit.detach().cpu().numpy())
+					else:
+						preds[i][0] = np.append(
+							preds[i][0], logit.detach().cpu().numpy(), axis=0)
 			else:
-				preds[0] = np.append(
-					preds[0], logits.detach().cpu().numpy(), axis=0)
+				if len(preds) == 0:
+					preds.append(logits.detach().cpu().numpy())
+				else:
+					preds[0] = np.append(
+						preds[0], logits.detach().cpu().numpy(), axis=0)
 
 		eval_loss = eval_loss / nb_eval_steps
 		preds = preds[0]
-		if output_mode == "classification":
-			preds = np.argmax(preds, axis=1)
-		elif output_mode == "regression":
-			preds = np.squeeze(preds)
-		result = compute_metrics(task_name, preds, all_label_ids.numpy())
+
+		if(output_mode == "multi_classification"): 
+			result = compute_metrics(task_name, preds, truth_label.numpy())
+		else:
+			if output_mode == "classification":
+				preds = np.argmax(preds, axis=1)
+			elif output_mode == "regression":
+				preds = np.squeeze(preds)
+
+			result = compute_metrics(task_name, preds, all_label_ids.numpy())
+		
 		loss = tr_loss/nb_tr_steps if args.do_train else None
 
 		result['eval_loss'] = eval_loss
@@ -677,7 +797,7 @@ def main():
 			segment_ids = segment_ids.to(device)
 
 			with torch.no_grad():
-				logits = model(input_ids, segment_ids, input_mask, labels=None)
+				logits = model(input_ids, segment_ids, input_mask)
 
 			if len(preds) == 0:
 				preds.append(logits.detach().cpu().numpy())
