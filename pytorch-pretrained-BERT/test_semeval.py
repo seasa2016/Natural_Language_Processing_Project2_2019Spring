@@ -68,12 +68,11 @@ class InputExample(object):
 class InputFeatures(object):
 	"""A single set of features of data."""
 
-	def __init__(self,guid, input_ids, input_mask, segment_ids,label, label_id):
+	def __init__(self,guid, input_ids, input_mask, segment_ids, label_id):
 		self.guid = guid
 		self.input_ids = input_ids
 		self.input_mask = input_mask
 		self.segment_ids = segment_ids
-		self.label = label
 		self.label_id = label_id
 
 class DataProcessor(object):
@@ -114,7 +113,7 @@ def remove_emoji(sen):
 		temp.append(word)
 	
 	sen = ' '.join(temp[1:])
-
+	"""
 	emoji_pattern = re.compile("["	
 	u"\U0001F600-\U0001F64F"  # emoticons
 	u"\U0001F300-\U0001F5FF"  # symbols & pictographs
@@ -141,12 +140,12 @@ def remove_emoji(sen):
 	
 	for c in emoji:
 		sen = sen.replace(c, '')
-
+	"""
 	noises = ['url', '\'ve', 'n\'t', '\'s', '\'m']
 	sen = sen.replace('url', '')
 	sen = sen.replace('\'ve', ' have')
 	sen = sen.replace('\'m', ' am')
-	sen = sen.replace('@user', '')
+	sen = sen.replace('@user', '@')
 	
 	return sen
 
@@ -335,8 +334,6 @@ def simple_accuracy(preds, labels):
 def multi_acc_and_f1(preds, labels):
 	# convert pred to label
 	out = []
-	for p in preds[0][0]:
-		print(p)
 
 	pred = np.array(preds[0][0]).argmax(axis=-1)
 	label=labels[:,0]
@@ -355,7 +352,6 @@ def multi_acc_and_f1(preds, labels):
 			continue
 		pred.append(p.argmax(axis=-1))
 		label.append(l[1])
-		print(pred[-1],l)
 	pred = np.array(pred)
 	label = np.array(label)
 	acc = simple_accuracy(pred,label)
@@ -458,7 +454,7 @@ def main():
 						type=float,
 						help="The initial learning rate for Adam.")
 	parser.add_argument("--num_train_epochs",
-						default=2.0,
+						default=3.0,
 						type=float,
 						help="Total number of training epochs to perform.")
 	parser.add_argument("--warmup_proportion",
@@ -479,7 +475,7 @@ def main():
 						help="random seed for initialization")
 	parser.add_argument('--gradient_accumulation_steps',
 						type=int,
-						default=2,
+						default=4,
 						help="Number of updates steps to accumulate before performing a backward/update pass.")
 	parser.add_argument('--fp16',
 						action='store_true',
@@ -654,13 +650,10 @@ def main():
 
 
 				if(output_mode == "multi_classification"):
-					loss_fct = NLLLoss()
-					loss = 0
-					#for i in range( len(label_list) ):
-					#	loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i] )
-					loss = loss_fct( logits[0].view(-1, num_labels[0]).softmax(-1), label_ids[:,0].view(-1) )
-					print(logits[0])
-					print(label_ids[0])
+					loss_fct = CrossEntropyLoss()
+					loss = loss_fct( logits[0].view(-1, num_labels[0]), label_ids[:,0].view(-1) )
+					loss += loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
+					loss += loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
 					print(loss)
 				elif output_mode == "classification":
 					loss_fct = CrossEntropyLoss()
@@ -724,9 +717,9 @@ def main():
 		all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
 
 		if( output_mode == "classification" or output_mode == "multi_classification"):
-			all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+			all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
 		elif( output_mode == "regression"):
-			all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.float)
+			all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.float)
 		eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
 
 		# Run prediction for full data
@@ -752,10 +745,10 @@ def main():
 
 			# create eval loss and other metric required by the task
 			if(output_mode == "multi_classification"): 
-				loss_fct = NLLLoss()
-				tmp_eval_loss = 0
-				for i in range( len(label_list) ):
-					tmp_eval_loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[:,i].view(-1) )
+				loss_fct = CrossEntropyLoss()
+				tmp_eval_loss = loss_fct( logits[0].view(-1, num_labels[0]), label_ids[:,0].view(-1) )
+				tmp_eval_loss += loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
+				tmp_eval_loss += loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
 			
 			elif output_mode == "classification":
 				loss_fct = CrossEntropyLoss()

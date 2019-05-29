@@ -977,8 +977,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
 		self.bert = BertModel(config)
 		self.dropout = nn.Dropout(config.hidden_dropout_prob)
 		
-		#self.classifier = nn.ModuleList( nn.Linear(config.hidden_size, num_label) for num_label in num_labels ) 
-		self.classifier = nn.Linear(config.hidden_size, num_labels[0])
+		self.classifier = nn.ModuleList( nn.Linear(config.hidden_size, num_label) for num_label in num_labels ) 
 		
 		self.apply(self.init_bert_weights)
 
@@ -986,14 +985,10 @@ class BertForSequenceClassification(BertPreTrainedModel):
 		_, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
 		pooled_output = self.dropout(pooled_output)
 		
-		"""
 		logits = []
 		for i in range(len(self.classifier)):
 			logits.append( self.classifier[i](pooled_output) )
 		return logits
-		"""
-		temp = self.classifier(pooled_output)
-		return [temp,torch.zeros(temp.shape[0],2).cuda(),torch.zeros(temp.shape[0],3).cuda()]
 
 
 class BertForMultipleChoice(BertPreTrainedModel):
