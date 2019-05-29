@@ -32,7 +32,7 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
-from torch.nn import CrossEntropyLoss, MSELoss, kldivloss
+from torch.nn import CrossEntropyLoss, MSELoss, KLDivLoss
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import matthews_corrcoef, f1_score
 
@@ -68,11 +68,12 @@ class InputExample(object):
 class InputFeatures(object):
 	"""A single set of features of data."""
 
-	def __init__(self,guid, input_ids, input_mask, segment_ids, label_id):
+	def __init__(self,guid, input_ids, input_mask, segment_ids,label, label_id):
 		self.guid = guid
 		self.input_ids = input_ids
 		self.input_mask = input_mask
 		self.segment_ids = segment_ids
+		self.label = label
 		self.label_id = label_id
 
 class DataProcessor(object):
@@ -107,12 +108,12 @@ class SemevalProcessor(DataProcessor):
 	def get_train_examples(self, data_dir):
 		"""See base class."""
 		return self._create_examples(
-			pd.read_csv(os.path.join(data_dir, "./dataset/train.tsv", sep='\t')), "train")
+			pd.read_csv(os.path.join(data_dir, "train.tsv"), sep='\t'), "train")
 
 	def get_dev_examples(self, data_dir):
 		"""See base class."""
 		return self._create_examples(
-			pd.read_csv(os.path.join(data_dir, "./dataset/valid.tsv", sep='\t')), "test")
+			pd.read_csv(os.path.join(data_dir, "valid.tsv"), sep='\t'), "train")
 
 	def get_test_examples(self, file_name):
 		"""See base class."""
@@ -146,6 +147,7 @@ class SemevalProcessor(DataProcessor):
 		for i,(guid,text,label_a,label_b,label_c) in enumerate( zip(ids,texts,label_as,label_bs,label_cs)):
 			label = [label_a,label_b,label_c]
 			examples.append(InputExample(guid=guid, text_a=text, label=label))
+
 			
 		return examples
 
@@ -159,11 +161,14 @@ def convert_examples_to_features(examples, label_lists, max_seq_length,
 		['NULL', 'UNT', 'TIN'],
 		['NULL', 'OTH', 'GRP', 'IND']
 		"""
-		label_map = []
-		
+		label_map = []	
 		label_map.append( {'OFF':[0,1], 'NOT':[1,0]} )
 		label_map.append( {'NULL':[0,0], 'UNT':[1,0], 'TIN':[0,1]} )
 		label_map.append( {'NULL':[0,0,0], 'OTH':[1,0,0], 'GRP':[0,1,0], 'IND':[0,0,1]} )
+
+		label_i = []	
+		for ll in label_lists:
+			label_i.append( {key:i for i,key in enumerate(ll)} )
 
 	else:
 		label_map =  {label : i for i, label in enumerate(label_list)} 
@@ -232,9 +237,11 @@ def convert_examples_to_features(examples, label_lists, max_seq_length,
 			label = []
 			for i,label_m in enumerate(label_map):
 				label.append( label_m[example.label[i]] )
+			ll = [ label_i[i][key] for i,key in enumerate(example.label) ] 	
 
 		elif output_mode == "classification":
 			label = label_map[example.label]
+
 		elif output_mode == "regression":
 			label = float(example.label)
 		else:
@@ -255,6 +262,7 @@ def convert_examples_to_features(examples, label_lists, max_seq_length,
 							  input_ids=input_ids,
 							  input_mask=input_mask,
 							  segment_ids=segment_ids,
+							  label=ll,
 							  label_id=label))
 	return features
 
@@ -280,27 +288,15 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 
 def simple_accuracy(preds, labels):
-    return (preds == labels).mean()
+	return (preds == labels).astype(int).mean()
 
 def multi_acc_and_f1(preds, labels):
 	# convert pred to label
 	out = []
+	pred = np.array(preds[0][0]).argmax(axis=-1)
+	label=labels[:,0]
 
-	acc = simple_accuracy(preds[0].argmax(axis=1),labels[:,0])
-	f1 = f1_score(y_true=labels, y_pred=preds)
-	out.append({
-		"acc": acc,
-		"f1": f1,
-	})
-
-	pred = []
-	label = []		
-	for p,l in zip(preds[1],labels[1]):
-		if(l==0):
-			continue
-		pred.append(p.argmax(axis=1))
-		label.append(l-1)
-	acc = simple_accuracy(pred,label)
+	acc = simple_accuracy(	pred,label	)
 	f1 = f1_score(y_true=label, y_pred=pred)
 	out.append({
 		"acc": acc,
@@ -309,13 +305,31 @@ def multi_acc_and_f1(preds, labels):
 
 	pred = []
 	label = []		
-	for p,l in zip(preds[1],labels[1]):
+	for p,l in zip( np.array(preds[1][0]),labels[:,1]):
 		if(l==0):
 			continue
-		pred.append(p.argmax(axis=1))
+		pred.append(p.argmax(axis=-1))
 		label.append(l-1)
+	pred = np.array(pred)
+	label = np.array(label)
 	acc = simple_accuracy(pred,label)
-	f1 = f1_score(y_true=label, y_pred=pred)
+	f1 = f1_score(y_true=label, y_pred=pred,average='macro')
+	out.append({
+		"acc": acc,
+		"f1": f1,
+	})
+	
+	pred = []
+	label = []		
+	for p,l in zip( np.array(preds[2][0]),labels[:,2]):
+		if(l==0):
+			continue
+		pred.append(p.argmax(axis=-1))
+		label.append(l-1)
+	pred = np.array(pred)
+	label = np.array(label)
+	acc = simple_accuracy(pred,label)
+	f1 = f1_score(y_true=label, y_pred=pred,average='macro')
 	out.append({
 		"acc": acc,
 		"f1": f1,
@@ -328,9 +342,8 @@ def multi_acc_and_f1(preds, labels):
 
 
 def compute_metrics(task_name, preds, labels):
-	assert len(preds) == len(labels)
 	if task_name == "semeval":
-		return {"acc": multi_acc_and_f1(preds, labels)}
+		return  {'total':multi_acc_and_f1(preds, labels)}
 	else:
 		raise KeyError(task_name)
 
@@ -369,7 +382,7 @@ def main():
 						type=str,
 						help="Where do you want to store the pre-trained models downloaded from s3")
 	parser.add_argument("--max_seq_length",
-						default=128,
+						default=80,
 						type=int,
 						help="The maximum total input sequence length after WordPiece tokenization. \n"
 							 "Sequences longer than this will be truncated, and sequences shorter \n"
@@ -572,7 +585,7 @@ def main():
 		if(output_mode == "multi_classification"):
 			all_label_ids = []
 			for i in range( len(label_list) ):
-				all_label_ids.append( torch.tensor([f.label_id[i] for f in train_features], dtype=torch.double) )
+				all_label_ids.append( torch.tensor([f.label_id[i] for f in train_features], dtype=torch.float) )
 			
 			train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids[0], all_label_ids[1], all_label_ids[2])
 		else:
@@ -606,10 +619,10 @@ def main():
 
 
 				if(output_mode == "multi_classification"):
-					loss_fct = kldivloss()
+					loss_fct = KLDivLoss()
 					loss = 0
 					for i in range( len(label_list) ):
-						loss += loss_fct( logits[i].view(-1, num_labels), label_ids[i] )
+						loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i] )
 				
 				elif output_mode == "classification":
 					loss_fct = CrossEntropyLoss()
@@ -675,9 +688,9 @@ def main():
 		if(output_mode == "multi_classification"):
 			all_label_ids = []
 			for i in range( len(label_list) ):
-				all_label_ids.append( torch.tensor([f.label_id[i] for f in train_features], dtype=torch.double) )
+				all_label_ids.append( torch.tensor([f.label_id[i] for f in eval_features], dtype=torch.float) )
 			
-			truth_label = [ torch.tensor([f for f in train_features], dtype=torch.long) ]
+			truth_label = [f.label for f in eval_features]
 			eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids[0], all_label_ids[1], all_label_ids[2])
 		else:
 			if( output_mode == "classification"):
@@ -713,10 +726,10 @@ def main():
 
 			# create eval loss and other metric required by the task
 			if(output_mode == "multi_classification"): 
-				loss_fct = kldivloss()
+				loss_fct = KLDivLoss()
 				tmp_eval_loss = 0
 				for i in range( len(label_list) ):
-					tmp_eval_loss += loss_fct( logits[i].view(-1, num_labels), label_ids[i] )
+					tmp_eval_loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i] )
 			
 			elif output_mode == "classification":
 				loss_fct = CrossEntropyLoss()
@@ -744,10 +757,9 @@ def main():
 						preds[0], logits.detach().cpu().numpy(), axis=0)
 
 		eval_loss = eval_loss / nb_eval_steps
-		preds = preds[0]
 
 		if(output_mode == "multi_classification"): 
-			result = compute_metrics(task_name, preds, truth_label.numpy())
+			result = compute_metrics(task_name, preds, np.array(truth_label))
 		else:
 			if output_mode == "classification":
 				preds = np.argmax(preds, axis=1)
