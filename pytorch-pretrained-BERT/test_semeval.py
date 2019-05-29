@@ -32,7 +32,7 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
-from torch.nn import CrossEntropyLoss, MSELoss, KLDivLoss
+from torch.nn import CrossEntropyLoss, MSELoss, NLLLoss
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import matthews_corrcoef, f1_score
 
@@ -356,11 +356,11 @@ def multi_acc_and_f1(preds, labels):
 
 	pred = []
 	label = []		
-	for p,l in zip( np.array(preds[1][0]),labels[:,1]):
-		if(l==0):
+	for p,l in zip( np.array(preds[1][0]),labels):
+		if(l[0]==0):
 			continue
 		pred.append(p.argmax(axis=-1))
-		label.append(l-1)
+		label.append(l[1])
 	pred = np.array(pred)
 	label = np.array(label)
 	acc = simple_accuracy(pred,label)
@@ -372,11 +372,11 @@ def multi_acc_and_f1(preds, labels):
 	
 	pred = []
 	label = []		
-	for p,l in zip( np.array(preds[2][0]),labels[:,2]):
-		if(l==0):
+	for p,l in zip( np.array(preds[2][0]),labels):
+		if(l[0]==0):
 			continue
 		pred.append(p.argmax(axis=-1))
-		label.append(l-1)
+		label.append(l[2])
 	pred = np.array(pred)
 	label = np.array(label)
 	acc = simple_accuracy(pred,label)
@@ -636,7 +636,7 @@ def main():
 		if(output_mode == "multi_classification"):
 			all_label_ids = []
 			for i in range( len(label_list) ):
-				all_label_ids.append( torch.tensor([f.label_id[i] for f in train_features], dtype=torch.float) )
+				all_label_ids.append( torch.tensor([f.label_id[i] for f in train_features], dtype=torch.long) )
 			
 			train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids[0], all_label_ids[1], all_label_ids[2])
 		else:
@@ -670,21 +670,21 @@ def main():
 
 
 				if(output_mode == "multi_classification"):
-					loss_fct = KLDivLoss()
+					loss_fct = NLLLoss()
 					loss = 0
 					#for i in range( len(label_list) ):
 					#	loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i] )
-					loss = loss_fct( logits[0].view(-1, num_labels[0]).softmax(-1), label_ids[0] )
+					loss = loss_fct( logits[0].view(-1, num_labels[0]).softmax(-1), label_ids[0].view(-1) )
 					print(logits[0])
 					print(label_ids[0])
-				
+					print(loss)
 				elif output_mode == "classification":
 					loss_fct = CrossEntropyLoss()
 					loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
 				elif output_mode == "regression":
 					loss_fct = MSELoss()
 					loss = loss_fct(logits.view(-1), label_ids.view(-1))
-				print(loss)
+				
 				if n_gpu > 1:
 					loss = loss.mean() # mean() to average on multi-gpu.
 				if args.gradient_accumulation_steps > 1:
@@ -742,7 +742,7 @@ def main():
 		if(output_mode == "multi_classification"):
 			all_label_ids = []
 			for i in range( len(label_list) ):
-				all_label_ids.append( torch.tensor([f.label_id[i] for f in eval_features], dtype=torch.float) )
+				all_label_ids.append( torch.tensor([f.label_id[i] for f in eval_features], dtype=torch.long) )
 			
 			truth_label = [f.label for f in eval_features]
 			eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids[0], all_label_ids[1], all_label_ids[2])
@@ -780,10 +780,10 @@ def main():
 
 			# create eval loss and other metric required by the task
 			if(output_mode == "multi_classification"): 
-				loss_fct = KLDivLoss()
+				loss_fct = NLLLoss()
 				tmp_eval_loss = 0
 				for i in range( len(label_list) ):
-					tmp_eval_loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i] )
+					tmp_eval_loss += loss_fct( logits[0].view(-1, num_labels[i]).softmax(-1), label_ids[i].view(-1) )
 			
 			elif output_mode == "classification":
 				loss_fct = CrossEntropyLoss()
