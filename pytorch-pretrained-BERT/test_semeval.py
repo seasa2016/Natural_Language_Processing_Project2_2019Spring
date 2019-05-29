@@ -408,6 +408,10 @@ def main():
 						type=str,
 						required=True,
 						help="The name of the task to train.")
+	parser.add_argument("--test_task",
+						default='taska',
+						type=str
+						help="The task to output.")
 	parser.add_argument("--output_dir",
 						default=None,
 						type=str,
@@ -811,16 +815,16 @@ def main():
 		all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
 		all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
 
-		eval_data = TensorDataset(all_index,all_input_ids, all_input_mask, all_segment_ids)
+		test_data = TensorDataset(all_index,all_input_ids, all_input_mask, all_segment_ids)
 		# Run prediction for full data
-		eval_sampler = SequentialSampler(eval_data)
-		eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
+		test_sampler = SequentialSampler(test_data)
+		test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
 
 		model.eval()
 		nb_eval_steps = 0
 		preds = []
 		total_index = []
-		for index,input_ids, input_mask, segment_ids in tqdm(eval_dataloader, desc="Evaluating"):
+		for index,input_ids, input_mask, segment_ids in tqdm(test_dataloader, desc="Evaluating"):
 			total_index.extend(index.tolist())
 
 			input_ids = input_ids.to(device)
@@ -830,23 +834,48 @@ def main():
 			with torch.no_grad():
 				logits = model(input_ids, segment_ids, input_mask)
 
-			if len(preds) == 0:
-				preds.append(logits.detach().cpu().numpy())
+			if(output_mode == "multi_classification"): 
+				for i,logit in enumerate(logits):
+					if(len(preds[i]) == 0):
+						preds[i].append(logit.detach().cpu().numpy())
+					else:
+						preds[i][0] = np.append(
+							preds[i][0], logit.detach().cpu().numpy(), axis=0)
 			else:
-				preds[0] = np.append(preds[0], logits.detach().cpu().numpy(), axis=0)
+				if len(preds) == 0:
+					preds.append(logits.detach().cpu().numpy())
+				else:
+					preds[0] = np.append(
+						preds[0], logits.detach().cpu().numpy(), axis=0)
 
-		preds = preds[0]
-		if output_mode == "classification":
-			preds = np.argmax(preds, axis=1)
-		elif output_mode == "regression":
-			preds = np.squeeze(preds)
+		if(output_mode == "multi_classification"): 
+			if(args.test_task == 'taska'):
+				preds = preds[0][0]
+				label_map= ['NOT','OFF']
+			elif(args.test_task == 'taskb'):
+				preds = preds[1][0]
+				label_map= ['UNT', 'TIN']
+			elif(args.test_task == 'taskc'):
+				preds = preds[2][0]
+				label_map= ['OTH', 'GRP', 'IND']
+				
+			preds = np.argmax(preds, axis=-1)
+		else:
+			preds = preds[0]
+			elif output_mode == "classification":
+				preds = np.argmax(preds, axis=1)
+			elif output_mode == "regression":
+				preds = np.squeeze(preds)
+			
+			label_map = processor.get_labels()
 
-		output_test_file = os.path.join(args.output_dir, "preds.txt")
+
+		output_test_file = os.path.join(args.output_dir, "{0}_preds.txt".format(args.test_task))
 		with open(output_test_file, "w") as writer:
 			logger.info("***** test results *****")
 			writer.write("Id,Category\n")
 			for i in range(preds.shape[0]):
-				writer.write("{0},{1}\n".format(total_index[i],processor.get_labels()[preds[i]] ))
+				writer.write("{0},{1}\n".format(total_index[i],label_map[preds[i]] ))
 
 
 if __name__ == "__main__":
