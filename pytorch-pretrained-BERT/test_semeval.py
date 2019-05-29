@@ -23,7 +23,7 @@ import logging
 import os
 import random
 import sys
-
+import re
 import pandas as pd
 import numpy as np
 import torch
@@ -103,6 +103,53 @@ class DataProcessor(object):
 				lines.append(line)
 			return lines
 
+def remove_emoji(sen):
+	sen = str(sen).lower()
+	temp = ['']
+	for word in sen.strip().split():
+		if(temp[-1] == '@user' and word == '@user'):
+			continue
+		if(word[0]=='#'):
+			continue
+		temp.append(word)
+	
+	sen = ' '.join(temp[1:])
+
+	emoji_pattern = re.compile("["	
+	u"\U0001F600-\U0001F64F"  # emoticons
+	u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+	u"\U0001F680-\U0001F6FF"  # transport & map symbols
+	u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+	u"\U00002702-\U000027B0"
+	u"\U000024C2-\U0001F251"
+	"]+", flags=re.UNICODE)
+	
+	sen = emoji_pattern.sub(r'', sen)
+	sen = re.sub(r'[\u3000-\u303F]', '', sen)
+	sen = re.sub(r'[\u3000-\u303F]', '', sen)
+	sen = re.sub(r'[\uFF00-\uFFEF]', '', sen)
+	
+	emoji = '💕' + '🤘' + '👯' + '🏋️' + '🚗🚗' + '💪' + '🎄' + '🔁' + '👋' + '💪💪' + '🔥' + \
+	'😝👶🏻☀️🍹' + '🔁' + '✨👯' + '🌞' + '💖' + '🎉✨' + '🔁' + '🌸' + '❤️💛💚💙💜' + \
+	'🇫🇷' + '🎆' + '💋' + '🔁' + '👂' + '🎸' + '💦💦' + '💦💦' + '❤' + '🍷' + \
+	'🎂' + '👫' + '🌞' + '🌊' + '🍁' + '🔁' + '🎶' + '🌹🌹' + '😆' +'🐔' + '🤠🇹🇭' + \
+	'👯' + '🌙' + '🎄' + '🎤' + '🔥🔥' + '🔥🔥' + '📚' + '💕' + '🙋' + '😁👾🍸' + '🔥' + \
+	'🎓' + '🍷' + '✏️🍍🍎✏️' + '💧' + '🔁' + '🌞' + '🛋' + '🔁' + '💪🏼' + '💔' + \
+	'🔁' + '🏆' + '🏆' + '🔁' + '🎉' + '🎉' + '🏃👟' + '🍖🍷🍾' + '❤️' + '🔁' + '😢' + \
+	'👋🏼' + '👂' + '🗽' + '🇵🇷' + '🎸' + '🔁' + '🌧' + '🔁' + '🍿🍿' + '❤️' + '😈' + \
+	'😈' + '🇭🇰' + '🌞' + '🌞' + '😜' + '👊' + '🇺🇸' + '😂' + '🤔' + ''
+	
+	for c in emoji:
+		sen = sen.replace(c, '')
+
+	noises = ['url', '\'ve', 'n\'t', '\'s', '\'m']
+	sen = sen.replace('url', '')
+	sen = sen.replace('\'ve', ' have')
+	sen = sen.replace('\'m', ' am')
+	sen = sen.replace('@user', '')
+	
+	return sen
+
 class SemevalProcessor(DataProcessor):
 	"""Processor for the WNLI data set (GLUE version)."""
 	def get_train_examples(self, data_dir):
@@ -146,6 +193,7 @@ class SemevalProcessor(DataProcessor):
 		#id,tid1,tid2,title1_zh,title2_zh,title1_en,title2_en,label
 		for i,(guid,text,label_a,label_b,label_c) in enumerate( zip(ids,texts,label_as,label_bs,label_cs)):
 			label = [label_a,label_b,label_c]
+			text = remove_emoji(text)
 			examples.append(InputExample(guid=guid, text_a=text, label=label))
 
 			
@@ -162,9 +210,9 @@ def convert_examples_to_features(examples, label_lists, max_seq_length,
 		['NULL', 'OTH', 'GRP', 'IND']
 		"""
 		label_map = []	
-		label_map.append( {'OFF':[0,1], 'NOT':[1,0]} )
-		label_map.append( {'NULL':[0,0], 'UNT':[1,0], 'TIN':[0,1]} )
-		label_map.append( {'NULL':[0,0,0], 'OTH':[1,0,0], 'GRP':[0,1,0], 'IND':[0,0,1]} )
+		label_map.append( {'OFF':1, 'NOT':0} )
+		label_map.append( {'NULL':0, 'UNT':0, 'TIN':1} )
+		label_map.append( {'NULL':0, 'OTH':0, 'GRP':1, 'IND':2} )
 
 		label_i = []	
 		for ll in label_lists:
@@ -247,7 +295,7 @@ def convert_examples_to_features(examples, label_lists, max_seq_length,
 		else:
 			raise KeyError(output_mode)
 
-		if ex_index < 5:
+		if ex_index > 22 and ex_index < 29:
 			logger.info("*** Example ***")
 			logger.info("guid: %s" % (example.guid))
 			logger.info("tokens: %s" % " ".join([str(x) for x in tokens]))
@@ -293,6 +341,9 @@ def simple_accuracy(preds, labels):
 def multi_acc_and_f1(preds, labels):
 	# convert pred to label
 	out = []
+	for p in preds[0][0]:
+		print(p)
+
 	pred = np.array(preds[0][0]).argmax(axis=-1)
 	label=labels[:,0]
 
@@ -400,7 +451,7 @@ def main():
 						action='store_true',
 						help="Set this flag if you are using an uncased model.")
 	parser.add_argument("--train_batch_size",
-						default=32,
+						default=128,
 						type=int,
 						help="Total batch size for training.")
 	parser.add_argument("--eval_batch_size",
@@ -408,11 +459,11 @@ def main():
 						type=int,
 						help="Total batch size for eval.")
 	parser.add_argument("--learning_rate",
-						default=5e-6,
+						default=1e-5,
 						type=float,
 						help="The initial learning rate for Adam.")
 	parser.add_argument("--num_train_epochs",
-						default=3.0,
+						default=2.0,
 						type=float,
 						help="Total number of training epochs to perform.")
 	parser.add_argument("--warmup_proportion",
@@ -433,7 +484,7 @@ def main():
 						help="random seed for initialization")
 	parser.add_argument('--gradient_accumulation_steps',
 						type=int,
-						default=4,
+						default=2,
 						help="Number of updates steps to accumulate before performing a backward/update pass.")
 	parser.add_argument('--fp16',
 						action='store_true',
@@ -621,8 +672,11 @@ def main():
 				if(output_mode == "multi_classification"):
 					loss_fct = KLDivLoss()
 					loss = 0
-					for i in range( len(label_list) ):
-						loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i] )
+					#for i in range( len(label_list) ):
+					#	loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i] )
+					loss = loss_fct( logits[0].view(-1, num_labels[0]).softmax(-1), label_ids[0] )
+					print(logits[0])
+					print(label_ids[0])
 				
 				elif output_mode == "classification":
 					loss_fct = CrossEntropyLoss()
@@ -630,7 +684,7 @@ def main():
 				elif output_mode == "regression":
 					loss_fct = MSELoss()
 					loss = loss_fct(logits.view(-1), label_ids.view(-1))
-
+				print(loss)
 				if n_gpu > 1:
 					loss = loss.mean() # mean() to average on multi-gpu.
 				if args.gradient_accumulation_steps > 1:
