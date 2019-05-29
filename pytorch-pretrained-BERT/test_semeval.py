@@ -408,7 +408,7 @@ def main():
 						type=int,
 						help="Total batch size for eval.")
 	parser.add_argument("--learning_rate",
-						default=5e-5,
+						default=5e-6,
 						type=float,
 						help="The initial learning rate for Adam.")
 	parser.add_argument("--num_train_epochs",
@@ -433,7 +433,7 @@ def main():
 						help="random seed for initialization")
 	parser.add_argument('--gradient_accumulation_steps',
 						type=int,
-						default=1,
+						default=4,
 						help="Number of updates steps to accumulate before performing a backward/update pass.")
 	parser.add_argument('--fp16',
 						action='store_true',
