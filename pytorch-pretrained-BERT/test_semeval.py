@@ -175,7 +175,7 @@ class SemevalProcessor(DataProcessor):
 	def get_labels(self):
 		"""See base class."""
 		return [
-			['OFF', 'NOT'],
+			['NOT', 'OFF'],
 			['NULL', 'UNT', 'TIN'],
 			['NULL', 'OTH', 'GRP', 'IND']
 		]
@@ -361,6 +361,7 @@ def multi_acc_and_f1(preds, labels):
 			continue
 		pred.append(p.argmax(axis=-1))
 		label.append(l[1])
+		print(pred[-1],l)
 	pred = np.array(pred)
 	label = np.array(label)
 	acc = simple_accuracy(pred,label)
@@ -373,7 +374,7 @@ def multi_acc_and_f1(preds, labels):
 	pred = []
 	label = []		
 	for p,l in zip( np.array(preds[2][0]),labels):
-		if(l[0]==0):
+		if(l[0]==0 or l[1]==1):
 			continue
 		pred.append(p.argmax(axis=-1))
 		label.append(l[2])
@@ -783,7 +784,7 @@ def main():
 				loss_fct = NLLLoss()
 				tmp_eval_loss = 0
 				for i in range( len(label_list) ):
-					tmp_eval_loss += loss_fct( logits[0].view(-1, num_labels[i]).softmax(-1), label_ids[i].view(-1) )
+					tmp_eval_loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i].view(-1) )
 			
 			elif output_mode == "classification":
 				loss_fct = CrossEntropyLoss()
