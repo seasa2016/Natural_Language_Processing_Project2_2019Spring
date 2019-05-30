@@ -339,7 +339,7 @@ def multi_acc_and_f1(preds, labels):
 	label=labels[:,0]
 
 	acc = simple_accuracy(	pred,label	)
-	f1 = f1_score(y_true=label, y_pred=pred)
+	f1 = f1_score(y_true=label, y_pred=pred,average='macro')
 	out.append({
 		"acc": acc,
 		"f1": f1,
@@ -410,17 +410,13 @@ def main():
 						help="The name of the task to train.")
 	parser.add_argument("--test_task",
 						default='taska',
-						type=str
+						type=str,
 						help="The task to output.")
 	parser.add_argument("--output_dir",
 						default=None,
 						type=str,
 						required=True,
 						help="The output directory where the model predictions and checkpoints will be written.")
-	parser.add_argument("--test_data",
-						default=None,
-						type=str,
-						help="The test input for predictions.")
 
 	## Other parameters
 	parser.add_argument("--cache_dir",
@@ -656,8 +652,8 @@ def main():
 				if(output_mode == "multi_classification"):
 					loss_fct = CrossEntropyLoss()
 					loss = loss_fct( logits[0].view(-1, num_labels[0]), label_ids[:,0].view(-1) )
-					loss += loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
-					loss += loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
+					loss += 16*loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
+					loss += 16*loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
 					print(loss)
 				elif output_mode == "classification":
 					loss_fct = CrossEntropyLoss()
@@ -805,7 +801,7 @@ def main():
 				writer.write("%s = %s\n" % (key, str(result[key])))
 	
 	if args.do_test and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
-		eval_examples = processor.get_test_examples(args.test_data)
+		eval_examples = processor.get_test_examples(args.data_dir)
 		eval_features = convert_examples_to_features(eval_examples, label_list, args.max_seq_length, tokenizer, output_mode)
 		logger.info("***** Running evaluation *****")
 		logger.info("  Num examples = %d", len(eval_examples))
@@ -818,11 +814,13 @@ def main():
 		test_data = TensorDataset(all_index,all_input_ids, all_input_mask, all_segment_ids)
 		# Run prediction for full data
 		test_sampler = SequentialSampler(test_data)
-		test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.test_batch_size)
+		test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.eval_batch_size)
 
 		model.eval()
 		nb_eval_steps = 0
 		preds = []
+		if(output_mode == "multi_classification"): 
+			preds = [[],[],[]]
 		total_index = []
 		for index,input_ids, input_mask, segment_ids in tqdm(test_dataloader, desc="Evaluating"):
 			total_index.extend(index.tolist())
@@ -862,7 +860,7 @@ def main():
 			preds = np.argmax(preds, axis=-1)
 		else:
 			preds = preds[0]
-			elif output_mode == "classification":
+			if output_mode == "classification":
 				preds = np.argmax(preds, axis=1)
 			elif output_mode == "regression":
 				preds = np.squeeze(preds)
