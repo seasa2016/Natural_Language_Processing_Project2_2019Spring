@@ -98,3 +98,5 @@ def parse(text):
     return text
 
 data['tweet'] = data['tweet'].apply(lambda x : remove_emoji(parse(x.lower())))
+data.to_csv('./data/train.tsv',sep='\t')
+

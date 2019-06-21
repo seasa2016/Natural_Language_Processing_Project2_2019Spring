@@ -451,11 +451,11 @@ def main():
 						type=int,
 						help="Total batch size for eval.")
 	parser.add_argument("--learning_rate",
-						default=1e-5,
+						default=1e-6,
 						type=float,
 						help="The initial learning rate for Adam.")
 	parser.add_argument("--num_train_epochs",
-						default=1.0,
+						default=3.0,
 						type=float,
 						help="Total number of training epochs to perform.")
 	parser.add_argument("--warmup_proportion",
@@ -655,7 +655,6 @@ def main():
 					loss = loss_fct( logits[0].view(-1, num_labels[0]), label_ids[:,0].view(-1) )
 					loss += 16*loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
 					loss += 16*loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
-					print(loss)
 				elif output_mode == "classification":
 					loss_fct = CrossEntropyLoss()
 					loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
