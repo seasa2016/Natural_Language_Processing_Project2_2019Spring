@@ -11,16 +11,14 @@ import torch.nn as nn
 from torch.utils.data import Dataset,DataLoader
 from torchvision import transforms, utils
 
-from models.Siamese import siamese
-from models.QaLSTM import qalstm
 from models.AttnLSTM import attnlstm
-from models.BiMPM import bimpm
 
-def get_data(train_file,eval_file,batch_size,pred,maxlen):
-	train_dataset = itemDataset( file_name=train_file,mode='train',pred=pred,maxlen=maxlen)
+
+def get_data(train_file,eval_file,batch_size,maxlen,vocab):
+	train_dataset = itemDataset( file_name=train_file,mode='train',vocab=vocab,maxlen=maxlen)
 	train_dataloader = DataLoader(train_dataset, batch_size=batch_size,shuffle=True, num_workers=16,collate_fn=collate_fn)
 	
-	eval_dataset = itemDataset( file_name=eval_file,mode='eval',pred=pred,maxlen=maxlen)
+	eval_dataset = itemDataset( file_name=eval_file,mode='eval',vocab=vocab,maxlen=maxlen)
 	eval_dataloader = DataLoader(eval_dataset, batch_size=batch_size,shuffle=True, num_workers=16,collate_fn=collate_fn)
 	
 	return {
@@ -37,7 +35,7 @@ def convert(data,device):
 			data[name] = data[name].to(device)
 	return data
 
-def process(args):
+def process(args,vocab):
 	print("check device")
 	if(torch.cuda.is_available() and args.gpu>=0):
 		device = torch.device('cuda')
@@ -47,17 +45,11 @@ def process(args):
 		print('the device is in cpu')
 
 	print("loading data")
-	dataloader = get_data(os.path.join(args.data,'total.csv'),os.path.join(args.data,'eval.csv'),args.batch_size,args.pred,args.maxlen)
+	dataloader = get_data(os.path.join(args.data,'train.tsv'),os.path.join(args.data,'eval.tsv'),args.batch_size,args.maxlen,vocab)
 
 	print("setting model")
-	if(args.model=='siamese'):
-		model = siamese(args)
-	elif(args.model=='qalstm'):
-		model = qalstm(args)
-	elif(args.model=='attnlstm'):
+	if(args.model=='attnlstm'):
 		model = attnlstm(args)
-	elif(args.model=='bimpm'):
-		model = bimpm(args)
 
 	model = model.to(device=device)
 
@@ -66,7 +58,7 @@ def process(args):
 	scheduler = optim.lr_scheduler.StepLR(optimizer, 3, gamma=0.5)	
 
 
-	acc_best = 000
+	acc_best = 0
 	print("start training")
 
 	model.zero_grad()
@@ -78,7 +70,6 @@ def process(args):
 		scheduler.step()
 
 def train(model,data_set,optimizer,device):
-	w = [1.0/16,1.0/15,1.0/5]
 	total={}
 	for i,data in enumerate(data_set):
 		data = convert(data,device)
@@ -101,7 +92,7 @@ def train(model,data_set,optimizer,device):
 			model.zero_grad()
 
 		if(i%160==0):
-			print(i,'train loss:{0}  acc:{1}/{2}, weighted:{3}'.format(total['loss'],total['count']['correct'],total['count']['num'],total['count']['weighted']/160))
+			print(i,'train loss:{0}  correct:{1} num:{1}'.format(total['loss'],total['correct'],total['num']))
 			for cla in total:
 				for t in total[cla]:
 					total[cla][t] = 0
@@ -126,7 +117,7 @@ def eval(model,data_set,device,acc_best,now,args):
 					except:
 						total[cla][t] = out[cla][t]
 	
-	print(i,'test loss:{0}  acc:{1}/{2}, weighted:{3}'.format(total['loss'],total['count']['correct'],total['count']['num'],total['count']['weighted']/len(data_set)))	
+	print(i,'test loss:{0}  correct:{1} num:{1}'.format(total['loss'],total['correct'],total['num']))
 	print('-'*10)
 	
 	check = {
@@ -135,9 +126,9 @@ def eval(model,data_set,device,acc_best,now,args):
 			}
 	torch.save(check, './saved_models/{0}/step_{1}.pkl'.format(args.save,now))
 
-	if(total['count']['weighted']>acc_best):
+	if(total['correct'][0]>acc_best):
 		torch.save(check, './saved_models/{0}/best.pkl'.format(args.save))
-		acc_best = total['count']['weighted']
+		acc_best = total['correct'][0]
 	
 	return acc_best
 		
@@ -153,25 +144,27 @@ def main():
 	parser.add_argument('--num_layer', default=2, type=int)
 	parser.add_argument('--learning_rate', default=0.0005, type=float)
 	
-	parser.add_argument('--print_freq', default=1, type=int)
-	parser.add_argument('--input_size', default=49527, type=int)
+	parser.add_argument('--embedding', default=None, type=bool)
 	parser.add_argument('--batch_first', default=True, type=bool)
 	parser.add_argument('--mode' , default= 'train', type=str)
-	parser.add_argument('--epoch', default= 5, type=int)
+	parser.add_argument('--epoch', default= 10, type=int)
 
-
-	parser.add_argument('--data', default='./data/all_no_embedding/', type=str)
+	parser.add_argument('--data', default='./data/', type=str)
 	parser.add_argument('--maxlen', default= 128, type=int)
 	parser.add_argument('--attention', default='luong',type=str)
 
 	parser.add_argument('--model', required=True)
-	parser.add_argument('--pred', required=True)
 	parser.add_argument('--save', required=True)
 	
 	args = parser.parse_args()
-	with open('{0}/vocab'.format(args.data)) as f:
-		args.word_num = len(f.readlines())
-	
+	if(args.embedding is None):
+		vocab = {}
+		with open('{0}/vocab'.format(args.data)) as f:
+			for i,word in enumerate(f):
+				word = word.strip().split()
+				vocab[ word[0] ] = i
+			args.word_num = len(vocab)
+
 	
 	if not os.path.exists('saved_models'):
 		os.makedirs('saved_models')
@@ -180,7 +173,7 @@ def main():
 		os.makedirs('./saved_models/{0}'.format(args.save))
 
 	print('training start!')
-	process(args)
+	process(args,vocab)
 	print('training finished!')
 	
 

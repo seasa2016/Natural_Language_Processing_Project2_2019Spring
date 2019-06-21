@@ -5,6 +5,7 @@ import re
 import sys
 import operator
 from tqdm import tqdm
+import operator
 
 data = pd.read_csv(sys.argv[1], sep='\t')
 
@@ -46,7 +47,7 @@ def remove_emoji(sen):
 
     for c in emoji:
         sen = sen.replace(c, '')
-    """2
+    """
     noises = ['url', '\'ve', 'n\'t', '\'s', '\'m']
     sen = sen.replace('url', '')
     sen = sen.replace('\'ve', ' have')
@@ -96,7 +97,19 @@ def parse(text):
     for key,data in mispell_dict.items():
         text = text.replace(key,data)
     return text
-
 data['tweet'] = data['tweet'].apply(lambda x : remove_emoji(parse(x.lower())))
-data.to_csv('./data/train.tsv',sep='\t')
+data.reset_index()
+data.to_csv('./data/train.tsv',sep='\t', index=False)
 
+vocab = {}
+for text in data['tweet'].tolist():
+    for word in text.strip().split():
+        try:
+            vocab[word] += 1
+        except:
+            vocab[word] = 1
+
+vocab = sorted(vocab.items(),key = lambda x: operator.getitem(x,1),reverse=True)
+with open('./data/vocab','w') as f:
+    for key in vocab:
+        f.write("{0}\t{1}\n".format(key[0],key[1]))

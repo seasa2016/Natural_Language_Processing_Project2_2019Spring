@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import math
-
+import torch.nn.functional as F
 
 class Bahdanau(nn.Module):
     def __init__(self,in_dim,out_dim):
@@ -25,7 +25,7 @@ class Bahdanau(nn.Module):
 
         #perform mask for the padding data
         attn_weight += -1e8*weight_mask.float()
-        attn_weights = [attn_weight.softmax(dim=-2),attn_weight.softmax(dim=-1)]
+        attn_weights = [F.softmax(attn_weight,dim=-2), F.softmax(attn_weight,dim=-1)]
         
         return [
             attn_weights[1].bmm(querys[1]),
@@ -51,7 +51,7 @@ class Luong(nn.Module):
 
         #perform mask for the padding data
         attn_weight += -1e8*weight_mask.float()
-        attn_weights = [attn_weight.softmax(dim=-2),attn_weight.softmax(dim=-1)]
+        attn_weights = [F.softmax(attn_weight,dim=-2), F.softmax(attn_weight, dim=-1)]
         
         return [
             attn_weights[1].bmm(query_normals[1]),
