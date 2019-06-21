@@ -145,7 +145,6 @@ def remove_emoji(sen):
 	sen = sen.replace('url', '')
 	sen = sen.replace('\'ve', ' have')
 	sen = sen.replace('\'m', ' am')
-	#sen = sen.replace('@user', '')
 	sen = sen.replace('@user', '@')
 	
 	return sen
@@ -340,7 +339,7 @@ def multi_acc_and_f1(preds, labels):
 	label=labels[:,0]
 
 	acc = simple_accuracy(	pred,label	)
-	f1 = f1_score(y_true=label, y_pred=pred,average='macro')
+	f1 = f1_score(y_true=label, y_pred=pred)
 	out.append({
 		"acc": acc,
 		"f1": f1,
@@ -418,6 +417,10 @@ def main():
 						type=str,
 						required=True,
 						help="The output directory where the model predictions and checkpoints will be written.")
+	parser.add_argument("--test_data",
+						default=None,
+						type=str,
+						help="The test input for predictions.")
 
 	## Other parameters
 	parser.add_argument("--cache_dir",
@@ -451,7 +454,7 @@ def main():
 						type=int,
 						help="Total batch size for eval.")
 	parser.add_argument("--learning_rate",
-						default=1e-6,
+						default=1e-5,
 						type=float,
 						help="The initial learning rate for Adam.")
 	parser.add_argument("--num_train_epochs",
@@ -476,7 +479,7 @@ def main():
 						help="random seed for initialization")
 	parser.add_argument('--gradient_accumulation_steps',
 						type=int,
-						default=2,
+						default=4,
 						help="Number of updates steps to accumulate before performing a backward/update pass.")
 	parser.add_argument('--fp16',
 						action='store_true',
@@ -655,6 +658,7 @@ def main():
 					loss = loss_fct( logits[0].view(-1, num_labels[0]), label_ids[:,0].view(-1) )
 					loss += 16*loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
 					loss += 16*loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
+					print(loss)
 				elif output_mode == "classification":
 					loss_fct = CrossEntropyLoss()
 					loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
@@ -747,8 +751,8 @@ def main():
 			if(output_mode == "multi_classification"): 
 				loss_fct = CrossEntropyLoss()
 				tmp_eval_loss = loss_fct( logits[0].view(-1, num_labels[0]), label_ids[:,0].view(-1) )
-				tmp_eval_loss += loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
-				tmp_eval_loss += loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
+				tmp_eval_loss += 16*loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
+				tmp_eval_loss += 16*loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
 			
 			elif output_mode == "classification":
 				loss_fct = CrossEntropyLoss()
