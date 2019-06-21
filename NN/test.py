@@ -11,13 +11,12 @@ import torch.nn as nn
 from torch.utils.data import Dataset,DataLoader
 from torchvision import transforms, utils
 
-from models.Siamese import siamese
-from models.QaLSTM import qalstm
 from models.AttnLSTM import attnlstm
-from models.BiMPM import bimpm
 
-def get_data(test_file,batch_size,pred,maxlen):
-	test_dataset = itemDataset( file_name=test_file,mode='test',pred=pred,maxlen=maxlen)
+label = {'taska':['NOT','OFF'],'taskb': ['UNT','TIN'],'taskc':['OTH', 'GRP', 'IND']}
+
+def get_data(test_file,batch_size,vocab,maxlen):
+	test_dataset = itemDataset( file_name=test_file,mode='test',vocab=vocab,maxlen=maxlen)
 	test_dataloader = DataLoader(test_dataset, batch_size=batch_size,shuffle=False, num_workers=16,collate_fn=collate_fn)
 	
 	return test_dataloader
@@ -25,13 +24,12 @@ def get_data(test_file,batch_size,pred,maxlen):
 def convert(data,device):
 	for name in data:
 		if(type(data[name])==list):
-			for i in range(len(data[name])):
-				data[name][i] = data[name][i].to(device)
+			pass
 		else:
 			data[name] = data[name].to(device)
 	return data
 
-def process(args,checkpoint):
+def process(args,checkpoint,vocab):
 	print("check device")
 	if(torch.cuda.is_available() and args.gpu>=0):
 		device = torch.device('cuda')
@@ -42,19 +40,14 @@ def process(args,checkpoint):
 
 	print("loading data")
 	try:
-		dataloader = get_data(args.data,args.batch_size,checkpoint['args'].pred,checkpoint['args'].maxlen)
+		dataloader = get_data(args.data,args.batch_size,vocab,checkpoint['args'].maxlen)
 	except:
-		dataloader = get_data(args.data,args.batch_size,checkpoint['args'].pred,128)
+		dataloader = get_data(args.data,args.batch_size,vocab,128)
 
 	print("setting model and load from pretrain")
-	if(checkpoint['args'].model=='siamese'):
-		model = siamese(checkpoint['args'])
-	elif(checkpoint['args'].model=='qalstm'):
-		model = qalstm(checkpoint['args'])
-	elif(checkpoint['args'].model=='attnlstm'):
+	
+	if(checkpoint['args'].model=='attnlstm'):
 		model = attnlstm(checkpoint['args'])
-	elif(checkpoint['args'].model=='bimpm'):
-		model = bimpm(checkpoint['args'])
 	
 	model.load_state_dict(checkpoint['model'])
 	model = model.to(device=device)
@@ -62,33 +55,33 @@ def process(args,checkpoint):
 	print("start testing")
 
 	model.eval()
-	out = test(model,dataloader,device)
+	out = test(model,args,dataloader,device)
 	with open(args.out,'w') as f:
-		for i in range(len(out[0])):
-			f.write('{0}'.format(out[0][i]))
-			for j in range(len(out[1])):
-				f.write(',{0}'.format(out[1][j][i]))
-			f.write('\n')
+		for i in range(len(out['id'])):
+			f.write('{0},{1}\n'.format(out['id'][i],label[args.task][out['ans'][i]]))
 
 
-def test(model,data_set,device):
+def test(model, args, data_set, device):
 	def append(total,out):
 		if(len(total)==0):
-			for i in range(len(out)):
-				total.append(out[i].tolist())
+			total.append(out)
 		else:
-			for i in range(len(out)):
-				total[i].extend(out[i].tolist())
+			total.extend(out)
 		
-	total=[[],[]]
+	total={'id':[],'ans':[]}
 	for i,data in enumerate(data_set):
 		with torch.no_grad():
 			data = convert(data,device)
-			out = model(data['query'],data['length'])
-			
-			total[0].extend(out[0].tolist())
-			append(total[1],out[1])
+			out = model(data['query'],data['length'])[0]
 
+			total['id'].extend(data['id'])
+			if(args.task=='taska'):
+				total['ans'].extend(out[2])
+			elif(args.task=='taskb'):
+				total['ans'].extend(out[2])
+			elif(args.task=='taskc'):
+				total['ans'].extend(out[2])
+			
 	return total
 		
 def main():
@@ -98,20 +91,29 @@ def main():
 	parser.add_argument('--gpu', default=0, type=int)
 	
 	parser.add_argument('--mode' , default= 'test', type=str)
-	parser.add_argument('--data', default='./data/all_no_embedding/test.csv', type=str)
+	parser.add_argument('--data', default='./data/testset-levela.tsv', type=str)
+	parser.add_argument('--embedding', default=None)
+
 	parser.add_argument('--save', required=True)
-	
 	parser.add_argument('--out', required=True)
+	parser.add_argument('--task', required=True)
 	
 	args = parser.parse_args()
 
-	if(os.path.exists('./saved_models/{0}/best.pkl'.format(args.save))):
-		checkpoint = torch.load( './saved_models/{0}/best.pkl'.format(args.save) )
+	if(os.path.exists(args.save)):
+		checkpoint = torch.load(args.save)
 	else:
-		raise ValueError('no this model')
-
+		raise ValueError('no this path')
+	
+	if(args.embedding is None):
+		vocab = {}
+		with open('./data/vocab') as f:
+			for i,word in enumerate(f):
+				word = word.strip().split()
+				vocab[ word[0] ] = i
+			args.word_num = len(vocab)
 	print('testing start!')
-	process(args,checkpoint)
+	process(args,checkpoint,vocab)
 	print('training finished!')
 	
 
