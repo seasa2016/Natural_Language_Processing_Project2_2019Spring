@@ -32,7 +32,7 @@ from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler,
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
-from torch.nn import CrossEntropyLoss, MSELoss, KLDivLoss
+from torch.nn import CrossEntropyLoss, MSELoss, NLLLoss
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import matthews_corrcoef, f1_score
 
@@ -68,12 +68,11 @@ class InputExample(object):
 class InputFeatures(object):
 	"""A single set of features of data."""
 
-	def __init__(self,guid, input_ids, input_mask, segment_ids,label, label_id):
+	def __init__(self,guid, input_ids, input_mask, segment_ids, label_id):
 		self.guid = guid
 		self.input_ids = input_ids
 		self.input_mask = input_mask
 		self.segment_ids = segment_ids
-		self.label = label
 		self.label_id = label_id
 
 class DataProcessor(object):
@@ -114,7 +113,7 @@ def remove_emoji(sen):
 		temp.append(word)
 	
 	sen = ' '.join(temp[1:])
-
+	"""
 	emoji_pattern = re.compile("["	
 	u"\U0001F600-\U0001F64F"  # emoticons
 	u"\U0001F300-\U0001F5FF"  # symbols & pictographs
@@ -141,12 +140,13 @@ def remove_emoji(sen):
 	
 	for c in emoji:
 		sen = sen.replace(c, '')
-
+	"""
 	noises = ['url', '\'ve', 'n\'t', '\'s', '\'m']
 	sen = sen.replace('url', '')
 	sen = sen.replace('\'ve', ' have')
 	sen = sen.replace('\'m', ' am')
-	sen = sen.replace('@user', '')
+	#sen = sen.replace('@user', '')
+	sen = sen.replace('@user', '@')
 	
 	return sen
 
@@ -175,7 +175,7 @@ class SemevalProcessor(DataProcessor):
 	def get_labels(self):
 		"""See base class."""
 		return [
-			['OFF', 'NOT'],
+			['NOT', 'OFF'],
 			['NULL', 'UNT', 'TIN'],
 			['NULL', 'OTH', 'GRP', 'IND']
 		]
@@ -210,13 +210,9 @@ def convert_examples_to_features(examples, label_lists, max_seq_length,
 		['NULL', 'OTH', 'GRP', 'IND']
 		"""
 		label_map = []	
-		label_map.append( {'OFF':[0,1], 'NOT':[1,0]} )
-		label_map.append( {'NULL':[0,0], 'UNT':[1,0], 'TIN':[0,1]} )
-		label_map.append( {'NULL':[0,0,0], 'OTH':[1,0,0], 'GRP':[0,1,0], 'IND':[0,0,1]} )
-
-		label_i = []	
-		for ll in label_lists:
-			label_i.append( {key:i for i,key in enumerate(ll)} )
+		label_map.append( {'NOT':0,'OFF':1} )
+		label_map.append( {'NULL':0, 'UNT':0, 'TIN':1} )
+		label_map.append( {'NULL':0, 'OTH':0, 'GRP':1, 'IND':2} )
 
 	else:
 		label_map =  {label : i for i, label in enumerate(label_list)} 
@@ -285,7 +281,6 @@ def convert_examples_to_features(examples, label_lists, max_seq_length,
 			label = []
 			for i,label_m in enumerate(label_map):
 				label.append( label_m[example.label[i]] )
-			ll = [ label_i[i][key] for i,key in enumerate(example.label) ] 	
 
 		elif output_mode == "classification":
 			label = label_map[example.label]
@@ -310,7 +305,6 @@ def convert_examples_to_features(examples, label_lists, max_seq_length,
 							  input_ids=input_ids,
 							  input_mask=input_mask,
 							  segment_ids=segment_ids,
-							  label=ll,
 							  label_id=label))
 	return features
 
@@ -341,11 +335,12 @@ def simple_accuracy(preds, labels):
 def multi_acc_and_f1(preds, labels):
 	# convert pred to label
 	out = []
+
 	pred = np.array(preds[0][0]).argmax(axis=-1)
 	label=labels[:,0]
 
 	acc = simple_accuracy(	pred,label	)
-	f1 = f1_score(y_true=label, y_pred=pred)
+	f1 = f1_score(y_true=label, y_pred=pred,average='macro')
 	out.append({
 		"acc": acc,
 		"f1": f1,
@@ -353,11 +348,11 @@ def multi_acc_and_f1(preds, labels):
 
 	pred = []
 	label = []		
-	for p,l in zip( np.array(preds[1][0]),labels[:,1]):
-		if(l==0):
+	for p,l in zip( np.array(preds[1][0]),labels):
+		if(l[0]==0):
 			continue
 		pred.append(p.argmax(axis=-1))
-		label.append(l-1)
+		label.append(l[1])
 	pred = np.array(pred)
 	label = np.array(label)
 	acc = simple_accuracy(pred,label)
@@ -369,11 +364,11 @@ def multi_acc_and_f1(preds, labels):
 	
 	pred = []
 	label = []		
-	for p,l in zip( np.array(preds[2][0]),labels[:,2]):
-		if(l==0):
+	for p,l in zip( np.array(preds[2][0]),labels):
+		if(l[1]==0):
 			continue
 		pred.append(p.argmax(axis=-1))
-		label.append(l-1)
+		label.append(l[2])
 	pred = np.array(pred)
 	label = np.array(label)
 	acc = simple_accuracy(pred,label)
@@ -414,15 +409,15 @@ def main():
 						type=str,
 						required=True,
 						help="The name of the task to train.")
+	parser.add_argument("--test_task",
+						default='taska',
+						type=str,
+						help="The task to output.")
 	parser.add_argument("--output_dir",
 						default=None,
 						type=str,
 						required=True,
 						help="The output directory where the model predictions and checkpoints will be written.")
-	parser.add_argument("--test_data",
-						default=None,
-						type=str,
-						help="The test input for predictions.")
 
 	## Other parameters
 	parser.add_argument("--cache_dir",
@@ -456,7 +451,7 @@ def main():
 						type=int,
 						help="Total batch size for eval.")
 	parser.add_argument("--learning_rate",
-						default=5e-7,
+						default=1e-5,
 						type=float,
 						help="The initial learning rate for Adam.")
 	parser.add_argument("--num_train_epochs",
@@ -630,18 +625,11 @@ def main():
 		all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
 
 
-		if(output_mode == "multi_classification"):
-			all_label_ids = []
-			for i in range( len(label_list) ):
-				all_label_ids.append( torch.tensor([f.label_id[i] for f in train_features], dtype=torch.float) )
-			
-			train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids[0], all_label_ids[1], all_label_ids[2])
-		else:
-			if( output_mode == "classification"):
-				all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-			elif( output_mode == "regression"):
-				all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.float)
-			train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+		if( output_mode == "classification" or output_mode == "multi_classification"):
+			all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+		elif( output_mode == "regression"):
+			all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.float)
+		train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
 
 		if args.local_rank == -1:
 			train_sampler = RandomSampler(train_data)
@@ -656,30 +644,25 @@ def main():
 			for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
 				batch = tuple(t.to(device) for t in batch)
 
-				if(output_mode == "multi_classification"):
-					input_ids, input_mask, segment_ids, label_id_as, label_id_bs, label_id_cs = batch
-					label_ids = [label_id_as, label_id_bs, label_id_cs]
-				else:
-					input_ids, input_mask, segment_ids, label_ids = batch
+				input_ids, input_mask, segment_ids, label_ids = batch
 
 				# define a new function to compute loss values for both output_modes
 				logits = model(input_ids, segment_ids, input_mask)
 
 
 				if(output_mode == "multi_classification"):
-					loss_fct = KLDivLoss()
-					loss = 0
-					#for i in range( len(label_list) ):
-					#	loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i] )
-					loss = loss_fct( logits[0].view(-1, num_labels[0]).softmax(-1), label_ids[0] )
-				
+					loss_fct = CrossEntropyLoss()
+					loss = loss_fct( logits[0].view(-1, num_labels[0]), label_ids[:,0].view(-1) )
+					loss += 16*loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
+					loss += 16*loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
+					print(loss)
 				elif output_mode == "classification":
 					loss_fct = CrossEntropyLoss()
 					loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
 				elif output_mode == "regression":
 					loss_fct = MSELoss()
 					loss = loss_fct(logits.view(-1), label_ids.view(-1))
-
+				
 				if n_gpu > 1:
 					loss = loss.mean() # mean() to average on multi-gpu.
 				if args.gradient_accumulation_steps > 1:
@@ -734,19 +717,11 @@ def main():
 		all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
 		all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
 
-		if(output_mode == "multi_classification"):
-			all_label_ids = []
-			for i in range( len(label_list) ):
-				all_label_ids.append( torch.tensor([f.label_id[i] for f in eval_features], dtype=torch.float) )
-			
-			truth_label = [f.label for f in eval_features]
-			eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids[0], all_label_ids[1], all_label_ids[2])
-		else:
-			if( output_mode == "classification"):
-				all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-			elif( output_mode == "regression"):
-				all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.float)
-			eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+		if( output_mode == "classification" or output_mode == "multi_classification"):
+			all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
+		elif( output_mode == "regression"):
+			all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.float)
+		eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
 
 		# Run prediction for full data
 		eval_sampler = SequentialSampler(eval_data)
@@ -764,21 +739,17 @@ def main():
 		for batch in tqdm(eval_dataloader, desc="Evaluating"):
 			batch = tuple(t.to(device) for t in batch)
 
-			if(output_mode == "multi_classification"):
-				input_ids, input_mask, segment_ids, label_id_as, label_id_bs, label_id_cs = batch
-				label_ids = [label_id_as, label_id_bs, label_id_cs]
-			else:
-				input_ids, input_mask, segment_ids, label_ids = batch
+			input_ids, input_mask, segment_ids, label_ids = batch
 
 			with torch.no_grad():
 				logits = model(input_ids, segment_ids, input_mask)
 
 			# create eval loss and other metric required by the task
 			if(output_mode == "multi_classification"): 
-				loss_fct = KLDivLoss()
-				tmp_eval_loss = 0
-				for i in range( len(label_list) ):
-					tmp_eval_loss += loss_fct( logits[i].view(-1, num_labels[i]).softmax(-1), label_ids[i] )
+				loss_fct = CrossEntropyLoss()
+				tmp_eval_loss = loss_fct( logits[0].view(-1, num_labels[0]), label_ids[:,0].view(-1) )
+				tmp_eval_loss += loss_fct( logits[1].view(-1, num_labels[1]), label_ids[:,1].view(-1) ) * (label_ids[:,0].float().view(-1)).mean()
+				tmp_eval_loss += loss_fct( logits[2].view(-1, num_labels[2]), label_ids[:,2].view(-1) ) * (label_ids[:,1].float().view(-1)).mean()
 			
 			elif output_mode == "classification":
 				loss_fct = CrossEntropyLoss()
@@ -808,14 +779,14 @@ def main():
 		eval_loss = eval_loss / nb_eval_steps
 
 		if(output_mode == "multi_classification"): 
-			result = compute_metrics(task_name, preds, np.array(truth_label))
+			pass
 		else:
 			if output_mode == "classification":
 				preds = np.argmax(preds, axis=1)
 			elif output_mode == "regression":
 				preds = np.squeeze(preds)
 
-			result = compute_metrics(task_name, preds, all_label_ids.numpy())
+		result = compute_metrics(task_name, preds, all_label_ids.numpy())
 		
 		loss = tr_loss/nb_tr_steps if args.do_train else None
 
@@ -831,7 +802,7 @@ def main():
 				writer.write("%s = %s\n" % (key, str(result[key])))
 	
 	if args.do_test and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
-		eval_examples = processor.get_test_examples(args.test_data)
+		eval_examples = processor.get_test_examples(args.data_dir)
 		eval_features = convert_examples_to_features(eval_examples, label_list, args.max_seq_length, tokenizer, output_mode)
 		logger.info("***** Running evaluation *****")
 		logger.info("  Num examples = %d", len(eval_examples))
@@ -841,16 +812,18 @@ def main():
 		all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
 		all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
 
-		eval_data = TensorDataset(all_index,all_input_ids, all_input_mask, all_segment_ids)
+		test_data = TensorDataset(all_index,all_input_ids, all_input_mask, all_segment_ids)
 		# Run prediction for full data
-		eval_sampler = SequentialSampler(eval_data)
-		eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
+		test_sampler = SequentialSampler(test_data)
+		test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.eval_batch_size)
 
 		model.eval()
 		nb_eval_steps = 0
 		preds = []
+		if(output_mode == "multi_classification"): 
+			preds = [[],[],[]]
 		total_index = []
-		for index,input_ids, input_mask, segment_ids in tqdm(eval_dataloader, desc="Evaluating"):
+		for index,input_ids, input_mask, segment_ids in tqdm(test_dataloader, desc="Evaluating"):
 			total_index.extend(index.tolist())
 
 			input_ids = input_ids.to(device)
@@ -860,23 +833,48 @@ def main():
 			with torch.no_grad():
 				logits = model(input_ids, segment_ids, input_mask)
 
-			if len(preds) == 0:
-				preds.append(logits.detach().cpu().numpy())
+			if(output_mode == "multi_classification"): 
+				for i,logit in enumerate(logits):
+					if(len(preds[i]) == 0):
+						preds[i].append(logit.detach().cpu().numpy())
+					else:
+						preds[i][0] = np.append(
+							preds[i][0], logit.detach().cpu().numpy(), axis=0)
 			else:
-				preds[0] = np.append(preds[0], logits.detach().cpu().numpy(), axis=0)
+				if len(preds) == 0:
+					preds.append(logits.detach().cpu().numpy())
+				else:
+					preds[0] = np.append(
+						preds[0], logits.detach().cpu().numpy(), axis=0)
 
-		preds = preds[0]
-		if output_mode == "classification":
-			preds = np.argmax(preds, axis=1)
-		elif output_mode == "regression":
-			preds = np.squeeze(preds)
+		if(output_mode == "multi_classification"): 
+			if(args.test_task == 'taska'):
+				preds = preds[0][0]
+				label_map= ['NOT','OFF']
+			elif(args.test_task == 'taskb'):
+				preds = preds[1][0]
+				label_map= ['UNT', 'TIN']
+			elif(args.test_task == 'taskc'):
+				preds = preds[2][0]
+				label_map= ['OTH', 'GRP', 'IND']
+				
+			preds = np.argmax(preds, axis=-1)
+		else:
+			preds = preds[0]
+			if output_mode == "classification":
+				preds = np.argmax(preds, axis=1)
+			elif output_mode == "regression":
+				preds = np.squeeze(preds)
+			
+			label_map = processor.get_labels()
 
-		output_test_file = os.path.join(args.output_dir, "preds.txt")
+
+		output_test_file = os.path.join(args.output_dir, "{0}_preds.txt".format(args.test_task))
 		with open(output_test_file, "w") as writer:
 			logger.info("***** test results *****")
 			writer.write("Id,Category\n")
 			for i in range(preds.shape[0]):
-				writer.write("{0},{1}\n".format(total_index[i],processor.get_labels()[preds[i]] ))
+				writer.write("{0},{1}\n".format(total_index[i],label_map[preds[i]] ))
 
 
 if __name__ == "__main__":
