@@ -10,7 +10,11 @@ import math
 class attnlstm(Base):
 	def __init__(self,args,vocab):
 		if(not hasattr(args,'lin_dim1')):
+<<<<<<< HEAD
 			args.lin_dim1 = args.hidden_dim * 2
+=======
+			args.lin_dim1 = args.hidden_dim * 2 *2
+>>>>>>> 54b8e89f5918f23ef7de9f5adea5e88c08deb3d3
 			args.lin_dim2 = args.hidden_dim
 			
 		super(attnlstm,self).__init__(args,vocab)

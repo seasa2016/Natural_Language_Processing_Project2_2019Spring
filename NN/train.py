@@ -149,7 +149,11 @@ def main():
 	parser.add_argument('--embedding', default=True, type=bool)
 	parser.add_argument('--batch_first', default=True, type=bool)
 	parser.add_argument('--mode' , default= 'train', type=str)
+<<<<<<< HEAD
 	parser.add_argument('--epoch', default= 20, type=int)
+=======
+	parser.add_argument('--epoch', default= 10, type=int)
+>>>>>>> 54b8e89f5918f23ef7de9f5adea5e88c08deb3d3
 
 	parser.add_argument('--data', default='./data/', type=str)
 	parser.add_argument('--maxlen', default= 128, type=int)
@@ -166,11 +170,16 @@ def main():
 				word = word.strip().split()
 				vocab[ word[0] ] = i
 	else:
+<<<<<<< HEAD
 		#news_path = './data/embedding/GoogleNews-vectors-negative300.bin'
 		#vocab = KeyedVectors.load_word2vec_format(news_path, binary=True)
 
 		news_path = './data/embedding/gensim_glove_vectors.txt'
 		vocab = KeyedVectors.load_word2vec_format(news_path, binary=False)
+=======
+		news_path = './data/embedding/GoogleNews-vectors-negative300.bin'
+		vocab = KeyedVectors.load_word2vec_format(news_path, binary=True)
+>>>>>>> 54b8e89f5918f23ef7de9f5adea5e88c08deb3d3
 	
 	if not os.path.exists('saved_models'):
 		os.makedirs('saved_models')

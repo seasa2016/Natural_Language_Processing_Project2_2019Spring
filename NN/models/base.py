@@ -65,7 +65,11 @@ class Base(nn.Module):
 		super(Base, self).__init__()
 		self.args = args
 		if(args.embedding == True):
+<<<<<<< HEAD
 			args.word_num = 60001
+=======
+			args.word_num = 30001
+>>>>>>> 54b8e89f5918f23ef7de9f5adea5e88c08deb3d3
 			args.embeds_dim = 300
 		else:
 			args.word_num = len(vocab)
