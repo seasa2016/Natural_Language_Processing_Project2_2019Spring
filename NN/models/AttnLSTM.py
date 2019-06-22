@@ -8,12 +8,12 @@ from .Attention import Luong,Bahdanau
 import math
 
 class attnlstm(Base):
-	def __init__(self,args):
+	def __init__(self,args,vocab):
 		if(not hasattr(args,'lin_dim1')):
-			args.lin_dim1 = args.hidden_dim * 2 *2 * 2
+			args.lin_dim1 = args.hidden_dim * 2
 			args.lin_dim2 = args.hidden_dim
 			
-		super(attnlstm,self).__init__(args)
+		super(attnlstm,self).__init__(args,vocab)
 
 		self.embeds_dim = args.embeds_dim
 		self.hidden_dim = args.hidden_dim
@@ -30,7 +30,7 @@ class attnlstm(Base):
 		else:
 			raise ValueError('no this attention')
 
-	def forward(self,querys,lengths,label=None):
+	def forward(self,querys,length,labels=None):
 		def pack(seq,seq_length):
 			sorted_seq_lengths, indices = torch.sort(seq_length, descending=True)
 			_, desorted_indices = torch.sort(indices, descending=False)
@@ -56,7 +56,7 @@ class attnlstm(Base):
 				desorted_res = padded_res[:, desorted_indices]
 
 			return desorted_res,state
-		def feat_extract(output,length,mask):
+		def feat_extract(output,lengths,mask):
 			"""
 			here we check for several output variant
 			1.largest
@@ -67,31 +67,23 @@ class attnlstm(Base):
 				output = output.transpose(0,1) 
 
 			result = []
-
-			#result.append( output.sum(dim=1) )
-
-				#result[0].append( torch.cat([ output[i][ length[i]-1 ][:self.hidden_dim],output[i][0][self.hidden_dim:]], dim=-1) )
+			for i in range(length.shape[0]):
+				result.append( torch.cat([ output[i][ length[i]-1 ][:self.hidden_dim],output[i][self.hidden_dim:]], dim=-1) )
 			
-			result.append( output.sum(dim=1).div(lengths[0].float().view(-1,1))	)
-			result.append( output.max(dim=1)[0] )
 
-			return torch.cat( result , dim=-1 ) 
+			return torch.stack( result , dim=0 ) 
 		
-		query_embs = [self.word_emb(querys[0]),self.word_emb(querys[1])]
-		masks = [querys[0].eq(0),querys[1].eq(0)]
+		emb = self.word_emb(querys)
+		query_embs = [emb,emb]
+		mask = [querys.eq(0),querys.eq(0)]
+		lengths = [length,length]
+		att_emb = self.attention(query_embs,lengths,mask)[0]
 
-		att_querys = self.attention(query_embs,lengths,masks)
-
-		query_result = []
-		for att_emb,length,mask in zip(att_querys,lengths,masks):
-			packed_inputs,desorted_indices = pack(att_emb,length)
-			res, state = self.rnn(packed_inputs)
-			query_res,_ = unpack(res, state,desorted_indices)
-			query_result.append(feat_extract(query_res,length.int(),mask))
+		packed_inputs,desorted_indices = pack(att_emb,length)
+		res, state = self.rnn(packed_inputs)
+		query_res,_ = unpack(res, state,desorted_indices)
+		query_result = feat_extract(query_res,length.int(),mask)
 		
-		result = torch.cat([query_result[0],query_result[1]],dim=-1)
-
-
-		out = self.linear(result,label=label)
+		out = self.linear(query_result,labels=labels)
 
 		return out
