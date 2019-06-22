@@ -65,10 +65,9 @@ class attnlstm(Base):
 			"""
 			if( self.batch_first == False ):
 				output = output.transpose(0,1) 
-
 			result = []
 			for i in range(length.shape[0]):
-				result.append( torch.cat([ output[i][ length[i]-1 ][:self.hidden_dim],output[i][self.hidden_dim:]], dim=-1) )
+				result.append( torch.cat([ output[i][ length[i]-1 ][:self.hidden_dim],output[i][0][self.hidden_dim:]], dim=-1) )
 			
 
 			return torch.stack( result , dim=0 ) 
