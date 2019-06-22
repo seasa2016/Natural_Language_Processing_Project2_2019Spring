@@ -144,7 +144,7 @@ def main():
 	parser.add_argument('--embeds_dim', default=256, type=int)
 	parser.add_argument('--hidden_dim', default=256, type=int)
 	parser.add_argument('--num_layer', default=2, type=int)
-	parser.add_argument('--learning_rate', default=0.0005, type=float)
+	parser.add_argument('--learning_rate', default=0.005, type=float)
 	
 	parser.add_argument('--embedding', default=False, type=bool)
 	parser.add_argument('--batch_first', default=True, type=bool)
