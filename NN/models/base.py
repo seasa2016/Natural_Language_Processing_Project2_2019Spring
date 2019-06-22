@@ -65,7 +65,7 @@ class Base(nn.Module):
 		super(Base, self).__init__()
 		self.args = args
 		if(args.embedding == True):
-			args.word_num = 30001
+			args.word_num = 60001
 			args.embeds_dim = 300
 		else:
 			args.word_num = len(vocab)
@@ -73,7 +73,7 @@ class Base(nn.Module):
 
 		if(args.embedding == True):
 			self.word_emb.load_state_dict({'weight': torch.tensor( vocab.vectors[:args.word_num]) } )
-			self.word_emb.weight.requires_grad = False
+			self.word_emb.weight.requires_grad = True
 			print("here",self.word_emb.weight.requires_grad)
 
 		self.linear = Linear(args.lin_dim1,args.lin_dim2)

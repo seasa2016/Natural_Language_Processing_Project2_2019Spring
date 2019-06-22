@@ -143,13 +143,13 @@ def main():
 	parser.add_argument('--gpu', default=0, type=int)
 	parser.add_argument('--embeds_dim', default=256, type=int)
 	parser.add_argument('--hidden_dim', default=256, type=int)
-	parser.add_argument('--num_layer', default=2, type=int)
-	parser.add_argument('--learning_rate', default=0.0005, type=float)
+	parser.add_argument('--num_layer', default=1, type=int)
+	parser.add_argument('--learning_rate', default=0.0001, type=float)
 	
 	parser.add_argument('--embedding', default=True, type=bool)
 	parser.add_argument('--batch_first', default=True, type=bool)
 	parser.add_argument('--mode' , default= 'train', type=str)
-	parser.add_argument('--epoch', default= 10, type=int)
+	parser.add_argument('--epoch', default= 20, type=int)
 
 	parser.add_argument('--data', default='./data/', type=str)
 	parser.add_argument('--maxlen', default= 128, type=int)
@@ -166,8 +166,11 @@ def main():
 				word = word.strip().split()
 				vocab[ word[0] ] = i
 	else:
-		news_path = './data/embedding/GoogleNews-vectors-negative300.bin'
-		vocab = KeyedVectors.load_word2vec_format(news_path, binary=True)
+		#news_path = './data/embedding/GoogleNews-vectors-negative300.bin'
+		#vocab = KeyedVectors.load_word2vec_format(news_path, binary=True)
+
+		news_path = './data/embedding/gensim_glove_vectors.txt'
+		vocab = KeyedVectors.load_word2vec_format(news_path, binary=False)
 	
 	if not os.path.exists('saved_models'):
 		os.makedirs('saved_models')

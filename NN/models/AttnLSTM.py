@@ -10,7 +10,7 @@ import math
 class attnlstm(Base):
 	def __init__(self,args,vocab):
 		if(not hasattr(args,'lin_dim1')):
-			args.lin_dim1 = args.hidden_dim * 2 *2
+			args.lin_dim1 = args.hidden_dim * 2
 			args.lin_dim2 = args.hidden_dim
 			
 		super(attnlstm,self).__init__(args,vocab)
@@ -67,15 +67,11 @@ class attnlstm(Base):
 				output = output.transpose(0,1) 
 
 			result = []
-
-			#result.append( output.sum(dim=1) )
-
-				#result[0].append( torch.cat([ output[i][ length[i]-1 ][:self.hidden_dim],output[i][0][self.hidden_dim:]], dim=-1) )
+			for i in range(length.shape[0]):
+				result.append( torch.cat([ output[i][ length[i]-1 ][:self.hidden_dim],output[i][self.hidden_dim:]], dim=-1) )
 			
-			result.append( output.sum(dim=1).div(lengths[0].float().view(-1,1))	)
-			result.append( output.max(dim=1)[0] )
 
-			return torch.cat( result , dim=-1 ) 
+			return torch.stack( result , dim=0 ) 
 		
 		emb = self.word_emb(querys)
 		query_embs = [emb,emb]
