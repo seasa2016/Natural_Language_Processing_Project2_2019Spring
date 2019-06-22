@@ -10,11 +10,7 @@ import math
 class attnlstm(Base):
 	def __init__(self,args,vocab):
 		if(not hasattr(args,'lin_dim1')):
-<<<<<<< HEAD
 			args.lin_dim1 = args.hidden_dim * 2
-=======
-			args.lin_dim1 = args.hidden_dim * 2 *2
->>>>>>> 54b8e89f5918f23ef7de9f5adea5e88c08deb3d3
 			args.lin_dim2 = args.hidden_dim
 			
 		super(attnlstm,self).__init__(args,vocab)
@@ -69,10 +65,9 @@ class attnlstm(Base):
 			"""
 			if( self.batch_first == False ):
 				output = output.transpose(0,1) 
-
 			result = []
 			for i in range(length.shape[0]):
-				result.append( torch.cat([ output[i][ length[i]-1 ][:self.hidden_dim],output[i][self.hidden_dim:]], dim=-1) )
+				result.append( torch.cat([ output[i][ length[i]-1 ][:self.hidden_dim],output[i][0][self.hidden_dim:]], dim=-1) )
 			
 
 			return torch.stack( result , dim=0 ) 
