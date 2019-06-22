@@ -100,7 +100,7 @@ def main():
 	parser.add_argument('--task', required=True)
 	
 	args = parser.parse_args()
-
+	args.data = './data/testset-level{0}.tsv'.format(args.task[-1])
 	if(os.path.exists(args.save)):
 		checkpoint = torch.load(args.save)
 	else:

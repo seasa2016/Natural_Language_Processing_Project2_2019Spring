@@ -20,16 +20,19 @@ if(__name__=='__main__'):
 	for gid,cate in zip(data['Id'],data['Category']):
 		temp[gid]=cate
 		s.add(cate)
-	
+
 	pred=[]
 	gold=[]
 
 	mapping={key:i for i,key in enumerate(s)}
-	
+
 	with open(sys.argv[2]) as f:
 		for line in f:
 			line = line.strip().split(',')
 			pred.append( mapping[ temp[int(line[0])] ])
-			gold.append( mapping[ line[1] ])
-	
+			try:
+				gold.append( mapping[ line[1] ])
+			except:
+				gold.append( len(mapping))
+
 	multi_acc_and_f1(np.array(pred),np.array(gold))
