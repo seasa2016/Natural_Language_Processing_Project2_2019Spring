@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from sklearn.metrics import matthews_corrcoef, f1_score
 from sklearn import metrics
 import numpy as np
 from .Focal_loss import FocalLoss
@@ -9,9 +9,9 @@ from .Focal_loss import FocalLoss
 def count(pred,label):
 	total = {}
 	
-	total['num'] = pred.shape[0]
+	total['num'] = f1_score(y_true=label.view(-1), y_pred=pred.view(-1),average='macro')
 	total['correct'] = (pred == label).sum().item()
-
+	
 	return total
 
 class Linear(nn.Module):
@@ -27,7 +27,7 @@ class Linear(nn.Module):
 		self.linear2_3 = nn.Linear(self.lin_dim2,3)
 		self.dropout = nn.Dropout()
 
-		self.criterion = nn.CrossEntropyLoss()
+		self.criterion = nn.CrossEntropyLoss(size_average=False)
 	def forward(self,x,labels=None):
 		out = self.linear1(x)
 		out	= self.dropout(out)
@@ -41,17 +41,17 @@ class Linear(nn.Module):
 			#return loss and acc
 			total = {'loss':{},'correct':{},'num':{}}
 			
-			loss = self.criterion( out[0].view(-1, 2), labels[:,0].view(-1) )
+			loss = self.criterion( out[0].view(-1, 2), labels[:,0].view(-1) ).mean()
 			total['loss']['a'] = loss.cpu().detach().item()
 			total_loss = loss
 
 			loss = self.criterion( out[1].view(-1, 2), labels[:,1].view(-1) ) * (labels[:,0].float().view(-1)).mean()
 			total['loss']['b'] = loss.cpu().detach().item()
-			total_loss += loss
+			#total_loss += loss
 			
 			loss = self.criterion( out[2].view(-1, 3), labels[:,2].view(-1) ) * (labels[:,1].float().view(-1)).mean()
 			total['loss']['c'] = loss.cpu().detach().item()
-			total_loss += loss
+			#total_loss += loss
 			
 			for i,pred in enumerate(preds):
 				temp = count(pred,labels[:,i])
@@ -61,28 +61,21 @@ class Linear(nn.Module):
 			return total_loss,total
 
 class Base(nn.Module):
-	def __init__(self,args):
+	def __init__(self,args,vocab):
 		super(Base, self).__init__()
 		self.args = args
-
+		if(args.embedding == True):
+			args.word_num = 30001
+			args.embeds_dim = 300
+		else:
+			args.word_num = len(vocab)
 		self.word_emb =nn.Embedding(args.word_num,args.embeds_dim,padding_idx=0)
 
-		if(args.mode == 'pretrain'):
-			self.load()
-			self.word_emb.weight.requires_grad = False
+		if(args.embedding == True):
+			self.word_emb.load_state_dict({'weight': torch.tensor( vocab.vectors[:args.word_num]) } )
+			self.word_emb.weight.requires_grad = True
 			print("here",self.word_emb.weight.requires_grad)
 
 		self.linear = Linear(args.lin_dim1,args.lin_dim2)
 
-	def load(self):
-		if(self.args.embed_type == 'glove'):
-			pass
-		elif(self.args.embed_type == 'fasttext'):
-			with open('./data/embedding/cc.zh.300.vec') as f:
-				f.readline()
-				arr = np.zeros((self.word_emb.weight.shape[0],self.word_emb.weight.shape[1]),dtype=np.float32)
-				for i,line in enumerate(f):
-					for j,num in enumerate(line.strip().split()[1:]):
-						arr[i+1,j] = float(num)
-						
-				self.word_emb.weight = nn.Parameter(torch.tensor(arr))
+		

@@ -8,12 +8,12 @@ from .Attention import Luong,Bahdanau
 import math
 
 class attnlstm(Base):
-	def __init__(self,args):
+	def __init__(self,args,vocab):
 		if(not hasattr(args,'lin_dim1')):
 			args.lin_dim1 = args.hidden_dim * 2 *2
 			args.lin_dim2 = args.hidden_dim
 			
-		super(attnlstm,self).__init__(args)
+		super(attnlstm,self).__init__(args,vocab)
 
 		self.embeds_dim = args.embeds_dim
 		self.hidden_dim = args.hidden_dim

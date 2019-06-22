@@ -10,15 +10,15 @@ import torch.nn.functional as F
 import torch.nn as nn
 from torch.utils.data import Dataset,DataLoader
 from torchvision import transforms, utils
-
+from gensim.models import KeyedVectors
 from models.AttnLSTM import attnlstm
 
 
-def get_data(train_file,eval_file,batch_size,maxlen,vocab):
-	train_dataset = itemDataset( file_name=train_file,mode='train',vocab=vocab,maxlen=maxlen)
+def get_data(train_file,eval_file,batch_size,maxlen,vocab,embedding):
+	train_dataset = itemDataset( file_name=train_file,mode='train',vocab=vocab,embedding=embedding,maxlen=maxlen)
 	train_dataloader = DataLoader(train_dataset, batch_size=batch_size,shuffle=True, num_workers=16,collate_fn=collate_fn)
 	
-	eval_dataset = itemDataset( file_name=eval_file,mode='eval',vocab=vocab,maxlen=maxlen)
+	eval_dataset = itemDataset( file_name=eval_file,mode='eval',vocab=vocab,embedding=embedding,maxlen=maxlen)
 	eval_dataloader = DataLoader(eval_dataset, batch_size=batch_size,shuffle=True, num_workers=16,collate_fn=collate_fn)
 	
 	return {
@@ -29,8 +29,7 @@ def get_data(train_file,eval_file,batch_size,maxlen,vocab):
 def convert(data,device):
 	for name in data:
 		if(type(data[name])==list):
-			for i in range(len(data[name])):
-				data[name][i] = data[name][i].to(device)
+			pass
 		else:
 			data[name] = data[name].to(device)
 	return data
@@ -45,16 +44,20 @@ def process(args,vocab):
 		print('the device is in cpu')
 
 	print("loading data")
-	dataloader = get_data(os.path.join(args.data,'train.tsv'),os.path.join(args.data,'eval.tsv'),args.batch_size,args.maxlen,vocab)
+	dataloader = get_data(os.path.join(args.data,'train.tsv'),os.path.join(args.data,'eval.tsv'),args.batch_size,args.maxlen,vocab,args.embedding)
 
 	print("setting model")
 	if(args.model=='attnlstm'):
-		model = attnlstm(args)
+		model = attnlstm(args,vocab)
 
 	model = model.to(device=device)
 
 	print(model)
-	optimizer = optim.Adam(model.parameters(),lr=args.learning_rate)
+	para = []
+	for w in model.parameters():
+		if(w.requires_grad ):
+			para.append(w)
+	optimizer = optim.Adam(para,lr=args.learning_rate)
 	scheduler = optim.lr_scheduler.StepLR(optimizer, 3, gamma=0.5)	
 
 
@@ -77,7 +80,7 @@ def train(model,data_set,optimizer,device):
 		#deal with the classfication part
 		loss,out = model(data['query'],data['length'],data['label'])
 		loss.backward()
-
+		
 		for cla in out:
 			if(cla not in total):
 				total[cla]={}
@@ -86,16 +89,15 @@ def train(model,data_set,optimizer,device):
 					total[cla][t] += out[cla][t]
 				except:
 					total[cla][t] = out[cla][t]
-
+		#print(out['num'])
 		if(i%1==0):
 			optimizer.step()
 			model.zero_grad()
 
-		if(i%160==0):
-			print(i,'train loss:{0}  correct:{1} num:{1}'.format(total['loss'],total['correct'],total['num']))
-			for cla in total:
-				for t in total[cla]:
-					total[cla][t] = 0
+	print(i,'train loss:{0}  correct:{1} num:{2}'.format(total['loss'],total['correct'],total['num']))
+	for cla in total:
+		for t in total[cla]:
+			total[cla][t] = 0
 
 	
 
@@ -117,7 +119,7 @@ def eval(model,data_set,device,acc_best,now,args):
 					except:
 						total[cla][t] = out[cla][t]
 	
-	print(i,'test loss:{0}  correct:{1} num:{1}'.format(total['loss'],total['correct'],total['num']))
+	print(i,'test loss:{0}  correct:{1} num:{2}'.format(total['loss'],total['correct'],total['num']))
 	print('-'*10)
 	
 	check = {
@@ -144,7 +146,7 @@ def main():
 	parser.add_argument('--num_layer', default=2, type=int)
 	parser.add_argument('--learning_rate', default=0.0005, type=float)
 	
-	parser.add_argument('--embedding', default=None, type=bool)
+	parser.add_argument('--embedding', default=True, type=bool)
 	parser.add_argument('--batch_first', default=True, type=bool)
 	parser.add_argument('--mode' , default= 'train', type=str)
 	parser.add_argument('--epoch', default= 10, type=int)
@@ -157,14 +159,15 @@ def main():
 	parser.add_argument('--save', required=True)
 	
 	args = parser.parse_args()
-	if(args.embedding is None):
+	if(args.embedding==False):
 		vocab = {}
 		with open('{0}/vocab'.format(args.data)) as f:
 			for i,word in enumerate(f):
 				word = word.strip().split()
 				vocab[ word[0] ] = i
-			args.word_num = len(vocab)
-
+	else:
+		news_path = './data/embedding/GoogleNews-vectors-negative300.bin'
+		vocab = KeyedVectors.load_word2vec_format(news_path, binary=True)
 	
 	if not os.path.exists('saved_models'):
 		os.makedirs('saved_models')
