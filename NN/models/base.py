@@ -47,11 +47,11 @@ class Linear(nn.Module):
 
 			loss = self.criterion( out[1].view(-1, 2), labels[:,1].view(-1) ) * (labels[:,0].float().view(-1)).mean()
 			total['loss']['b'] = loss.cpu().detach().item()
-			#total_loss += loss
+			total_loss += 16*loss
 			
 			loss = self.criterion( out[2].view(-1, 3), labels[:,2].view(-1) ) * (labels[:,1].float().view(-1)).mean()
 			total['loss']['c'] = loss.cpu().detach().item()
-			#total_loss += loss
+			total_loss += 16*loss
 			
 			for i,pred in enumerate(preds):
 				temp = count(pred,labels[:,i])
