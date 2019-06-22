@@ -74,7 +74,6 @@ def test(model, args, data_set, device):
 		with torch.no_grad():
 			data = convert(data,device)
 			temp = model(data['query'],data['length'])
-			print(temp[1])
 			out = temp[0]
 			total['id'].extend(data['id'])
 			if(args.task=='taska'):

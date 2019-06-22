@@ -27,7 +27,8 @@ class Linear(nn.Module):
 		self.linear2_3 = nn.Linear(self.lin_dim2,3)
 		self.dropout = nn.Dropout()
 
-		self.criterion = nn.CrossEntropyLoss(size_average=False)
+		self.criterion = nn.CrossEntropyLoss(reduction='none')
+		#self.criterion = nn.CrossEntropyLoss()
 	def forward(self,x,labels=None):
 		out = self.linear1(x)
 		out	= self.dropout(out)
@@ -40,18 +41,18 @@ class Linear(nn.Module):
 		else:
 			#return loss and acc
 			total = {'loss':{},'correct':{},'num':{}}
-			
+			total_loss = 0
 			loss = self.criterion( out[0].view(-1, 2), labels[:,0].view(-1) ).mean()
 			total['loss']['a'] = loss.cpu().detach().item()
-			total_loss = loss
+			#total_loss += loss
 
-			loss = self.criterion( out[1].view(-1, 2), labels[:,1].view(-1) ) * (labels[:,0].float().view(-1)).mean()
+			loss = (self.criterion( out[1].view(-1, 2), labels[:,1].view(-1) )* (labels[:,0].float().view(-1)) ).mean()
 			total['loss']['b'] = loss.cpu().detach().item()
-			total_loss += 16*loss
+			#total_loss += loss
 			
-			loss = self.criterion( out[2].view(-1, 3), labels[:,2].view(-1) ) * (labels[:,1].float().view(-1)).mean()
+			loss = (self.criterion( out[2].view(-1, 3), labels[:,2].view(-1) )* (labels[:,1].float().view(-1)) ).mean()
 			total['loss']['c'] = loss.cpu().detach().item()
-			total_loss += 16*loss
+			total_loss += loss
 			
 			for i,pred in enumerate(preds):
 				temp = count(pred,labels[:,i])
